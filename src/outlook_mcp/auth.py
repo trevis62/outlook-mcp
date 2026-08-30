@@ -14,7 +14,7 @@ from azure.identity import (
 )
 
 from outlook_mcp.config import DEFAULT_CONFIG_DIR, Config
-from outlook_mcp.errors import AuthRequiredError
+from outlook_mcp.errors import AuthRequiredError, UnencryptedCacheError
 
 logger = logging.getLogger(__name__)
 
@@ -117,13 +117,25 @@ class AuthManager:
     ) -> DeviceCodeCredential:
         """Create a DeviceCodeCredential with persistent cache."""
         global _warned_unencrypted_fallback
+        allow_unencrypted = self.config.allow_unencrypted_token_cache
+
+        # Fail closed: a plaintext refresh token is a long-lived mailbox
+        # credential, so downgrading to one has to be the user's decision.
+        if not allow_unencrypted and _unencrypted_fallback_will_be_used():
+            raise UnencryptedCacheError()
+
         cache_options = TokenCachePersistenceOptions(
             name=CACHE_NAME,
-            allow_unencrypted_storage=True,
+            allow_unencrypted_storage=allow_unencrypted,
         )
-        if not _warned_unencrypted_fallback and _unencrypted_fallback_will_be_used():
+        if (
+            allow_unencrypted
+            and not _warned_unencrypted_fallback
+            and _unencrypted_fallback_will_be_used()
+        ):
             logger.warning(
-                "Token cache will be stored unencrypted on disk because "
+                "allow_unencrypted_token_cache is set, so the token cache "
+                "will be stored unencrypted on disk: "
                 "PyGObject/libsecret is not importable in this Python "
                 "environment (common with `uv tool install` on Linux — "
                 "the tool's isolated venv can't see system PyGObject). "

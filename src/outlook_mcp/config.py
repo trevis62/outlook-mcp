@@ -52,6 +52,14 @@ class Config(BaseModel):
             "an empty allowlist here must not grant read access to the whole host."
         ),
     )
+    allow_unencrypted_token_cache: bool = Field(
+        default=False,
+        description=(
+            "Permit azure-identity to write the OAuth token cache to a plaintext "
+            "file when no OS keyring is reachable (Linux without libsecret). Off by "
+            "default: a plaintext refresh token is a long-lived mailbox credential."
+        ),
+    )
     timezone: str = Field(default="UTC", description="IANA timezone for relative date computations")
     accounts: list[AccountConfig] = Field(default_factory=list)
     default_account: str | None = Field(default=None)

@@ -391,6 +391,7 @@ Config lives at `~/.outlook-mcp/config.json` (created with `0600` permissions).
 | `timezone` | `string` | `"UTC"` | IANA timezone (e.g. `"America/New_York"`). Used for relative date computations in calendar tools. |
 | `read_only` | `bool` | `false` | When `true`, all write tools (send, reply, move, delete, create, update, RSVP) return an error. |
 | `allow_categories` | `list[string]` | `[]` | Optional. Restrict write tools to specific categories (see below). Empty list = all writes allowed when `read_only: false`. |
+| `allow_unencrypted_token_cache` | `bool` | `false` | Permit azure-identity to write the token cache to a plaintext file when no OS keyring is reachable (Linux without libsecret). Off by default: a plaintext refresh token is a long-lived mailbox credential, so the server refuses to start auth rather than downgrade silently. |
 | `download_dir` | `string` | `"~/.outlook-mcp/downloads"` | Only directory `outlook_download_attachment` may write into. Created `0700`. A relative `save_path` resolves inside it; an absolute one must already be inside it. Paths escaping it (via `..` or a symlink) are refused. |
 | `attachment_source_dirs` | `list[string]` | `[]` | Directories `outlook_send_with_attachments` / `outlook_attach_to_draft` may read files from. **Empty list = nothing may be attached.** Note this is the inverse of `allow_categories`: an empty allowlist here fails *closed*, because otherwise any file on the host could be mailed out. |
 

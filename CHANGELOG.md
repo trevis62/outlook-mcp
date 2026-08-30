@@ -27,6 +27,19 @@ Both are now confined to allowlisted directories, enforced on the symlink-resolv
 
 `cmd_logout` printed instructions but never deleted `~/.outlook-mcp/auth_record.json`, the record that enables silent token refresh — so a user who ran it was still logged in on the next server start. It now clears the record, and distinguishes that from the OS-credential-store entry, which still has to be removed by hand.
 
+### Changed — Plaintext token caching is now opt-in (**breaking on Linux without libsecret**)
+
+`allow_unencrypted_storage=True` was passed unconditionally, so on Linux without libsecret the refresh token was silently written to a plaintext file. Now gated behind `allow_unencrypted_token_cache` (default `false`): if no keyring is reachable and the flag is unset, credential creation raises `UnencryptedCacheError` with instructions, instead of quietly downgrading. macOS and Windows are unaffected (Keychain/DPAPI are always encrypted).
+
+### Fixed — Truncated attachments reported as sent
+
+`_upload_large_file` never checked the response to each chunk `PUT`, so a rejected chunk left the loop pushing the remainder and returning normally — the recipient got a corrupt file while the tool reported success. Each chunk response is now checked.
+
+### Security — Hardening with no known exploit
+
+- Delta requests pin `follow_redirects=False` explicitly. This is already httpx's default, but a redirect is a URL that never passed host validation, so the intent is now local to the call and guarded by a test.
+- CI workflow declares `permissions: contents: read` instead of inheriting the repository default.
+
 ### Fixed — Documentation overstated token protection
 
 `SECURITY.md` claimed tokens are "never in plain files". On Linux without libsecret they are, in a `0600` file under `~/.IdentityService/`. Corrected to match the README, which already described the fallback accurately.

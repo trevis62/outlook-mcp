@@ -152,3 +152,43 @@ async def test_valid_graph_delta_token_still_works():
     assert items == [{"id": "m1"}]
     assert token == GRAPH_DELTA_URL
     assert has_more is False
+
+
+@pytest.mark.asyncio
+async def test_redirects_away_from_graph_are_not_followed():
+    """A 302 must not carry the bearer token to another host.
+
+    Regression guard, not a red-green cycle: httpx already defaults to
+    follow_redirects=False, so this passes today. It exists so that a change
+    to that default (or someone passing follow_redirects=True) fails loudly
+    instead of quietly reopening the exfiltration path that require_graph_url
+    closes — validation only covers URLs we choose, not ones a server hands
+    us mid-flight.
+    """
+    import httpx
+
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(302, headers={"Location": "https://evil.example/steal"})
+
+    # Bind the real class before patching: patching _delta.httpx.AsyncClient
+    # rebinds the attribute on the httpx module itself, so calling
+    # httpx.AsyncClient inside the factory would recurse into the patch.
+    real_async_client = httpx.AsyncClient
+
+    def fake_client(**kwargs):
+        kwargs.pop("transport", None)
+        return real_async_client(transport=httpx.MockTransport(handler), **kwargs)
+
+    with patch("outlook_mcp.tools._delta.httpx.AsyncClient", side_effect=fake_client):
+        with pytest.raises(httpx.HTTPStatusError):
+            await fetch_delta_pages(
+                _credential(),
+                initial_url=GRAPH_DELTA_URL,
+                delta_token=None,
+                page_size=10,
+            )
+
+    assert seen == [GRAPH_DELTA_URL]

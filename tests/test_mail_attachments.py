@@ -706,3 +706,83 @@ class TestSendAttachmentConfinement:
 
         assert result["status"] == "sent"
         client.me.send_mail.post.assert_awaited_once()
+
+
+class TestUploadChunkFailures:
+    """A failed chunk PUT must not be reported as a successful send."""
+
+    async def test_raises_when_a_chunk_upload_fails(self, tmp_path):
+        """Graph rejecting a chunk must surface, not silently truncate the file.
+
+        Without a status check the upload loop keeps PUTting subsequent
+        chunks and returns normally, so the recipient gets a corrupt
+        attachment while the tool reports success.
+        """
+        import httpx
+
+        from outlook_mcp.tools.mail_attachments import _upload_large_file
+
+        f = tmp_path / "big.bin"
+        payload = b"x" * (3 * 1024 * 1024 + 1)
+        f.write_bytes(payload)
+
+        failing = MagicMock()
+        failing.status_code = 507
+        failing.raise_for_status = MagicMock(
+            side_effect=httpx.HTTPStatusError(
+                "insufficient storage", request=MagicMock(), response=MagicMock()
+            )
+        )
+
+        fake_client = MagicMock()
+        fake_client.put = AsyncMock(return_value=failing)
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch(
+            "outlook_mcp.tools.mail_attachments.httpx.AsyncClient",
+            return_value=fake_client,
+        ):
+            with pytest.raises(httpx.HTTPStatusError):
+                await _upload_large_file(
+                    "https://graph.microsoft.com/upload/session",
+                    str(f),
+                    len(payload),
+                )
+
+    async def test_stops_uploading_after_a_failed_chunk(self, tmp_path):
+        """The loop must abort on failure rather than push the remaining chunks."""
+        import httpx
+
+        from outlook_mcp.tools.mail_attachments import _upload_large_file
+
+        f = tmp_path / "big.bin"
+        # Four chunks' worth, so there is something left to send after chunk 1.
+        payload = b"x" * (4 * 320 * 1024 * 10)
+        f.write_bytes(payload)
+
+        failing = MagicMock()
+        failing.status_code = 500
+        failing.raise_for_status = MagicMock(
+            side_effect=httpx.HTTPStatusError(
+                "server error", request=MagicMock(), response=MagicMock()
+            )
+        )
+
+        fake_client = MagicMock()
+        fake_client.put = AsyncMock(return_value=failing)
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch(
+            "outlook_mcp.tools.mail_attachments.httpx.AsyncClient",
+            return_value=fake_client,
+        ):
+            with pytest.raises(httpx.HTTPStatusError):
+                await _upload_large_file(
+                    "https://graph.microsoft.com/upload/session",
+                    str(f),
+                    len(payload),
+                )
+
+        assert fake_client.put.await_count == 1

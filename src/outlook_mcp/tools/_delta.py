@@ -74,6 +74,7 @@ def require_graph_url(url: str) -> str:
 
     return url
 
+
 # Safety cap multiplier — bound a single tool call to at most this many
 # items even when Graph keeps handing us more ``@odata.nextLink`` pages
 # inside one delta-sync round. Callers continue by passing the returned
@@ -163,7 +164,12 @@ async def fetch_delta_pages(
     next_token: str | None = None
     has_more = False
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    # follow_redirects is httpx's default-off, pinned explicitly: a redirect
+    # is a URL we never validated, so following one would carry the bearer
+    # token to a host require_graph_url never approved.
+    async with httpx.AsyncClient(
+        timeout=timeout, follow_redirects=False
+    ) as client:
         while True:
             # Retry the delta GET on 429/503 (this raw-httpx path bypasses the
             # SDK's kiota RetryHandler, so it must honor Retry-After itself).

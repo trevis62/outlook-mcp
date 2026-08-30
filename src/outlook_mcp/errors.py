@@ -49,6 +49,29 @@ class PermissionDeniedError(OutlookMCPError):
         )
 
 
+class UnencryptedCacheError(OutlookMCPError):
+    """Raised when the token cache would be written to disk in plaintext.
+
+    A refresh token in a plaintext file is a long-lived mailbox credential
+    readable by anything running as the user, so this fails closed and makes
+    the user opt in rather than silently downgrading.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "unencrypted_cache",
+            "Refusing to cache the OAuth token unencrypted. PyGObject/libsecret "
+            "is not importable in this Python environment, so azure-identity "
+            "would write the refresh token to a plaintext file.",
+            (
+                "Install the system packages (apt: `gnome-keyring libsecret-1-0 "
+                "python3-gi`) and re-create the venv with `--system-site-packages`. "
+                "To accept plaintext storage instead, set "
+                "`allow_unencrypted_token_cache: true` in ~/.outlook-mcp/config.json."
+            ),
+        )
+
+
 class NotFoundError(OutlookMCPError):
     """Raised when a requested resource doesn't exist."""
 

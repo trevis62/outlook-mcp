@@ -6,6 +6,8 @@ import mimetypes
 import os
 from typing import Any
 
+import httpx
+
 from outlook_mcp.config import Config
 from outlook_mcp.paths import require_allowed_source, resolve_download_path
 from outlook_mcp.permissions import (
@@ -116,8 +118,6 @@ async def _upload_large_file(
 
     Uses httpx to PUT chunks to the upload URL provided by Graph.
     """
-    import httpx
-
     async with httpx.AsyncClient() as client:
         offset = 0
         with open(file_path, "rb") as f:
@@ -129,7 +129,12 @@ async def _upload_large_file(
                     "Content-Range": f"bytes {offset}-{end}/{file_size}",
                     "Content-Length": str(chunk_size),
                 }
-                await client.put(upload_url, content=chunk, headers=headers)
+                resp = await client.put(upload_url, content=chunk, headers=headers)
+                # Without this the loop would keep PUTting the remaining
+                # chunks after a rejection and return normally, so the
+                # recipient gets a truncated file and the tool reports
+                # success.
+                resp.raise_for_status()
                 offset += chunk_size
 
 
