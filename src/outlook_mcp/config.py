@@ -35,6 +35,31 @@ class Config(BaseModel):
             "categories are permitted."
         ),
     )
+    download_dir: str = Field(
+        default="~/.outlook-mcp/downloads",
+        description=(
+            "Only directory outlook_download_attachment may write into. Attachment "
+            "bytes are attacker-controlled, so writes are confined here rather than "
+            "allowed anywhere on the host."
+        ),
+    )
+    attachment_source_dirs: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Directories outlook_send_with_attachments / outlook_attach_to_draft may "
+            "read files from. Empty list = no file may be attached (fail closed). "
+            "Note this is the inverse of allow_categories, where empty means open: "
+            "an empty allowlist here must not grant read access to the whole host."
+        ),
+    )
+    allow_unencrypted_token_cache: bool = Field(
+        default=False,
+        description=(
+            "Permit azure-identity to write the OAuth token cache to a plaintext "
+            "file when no OS keyring is reachable (Linux without libsecret). Off by "
+            "default: a plaintext refresh token is a long-lived mailbox credential."
+        ),
+    )
     timezone: str = Field(default="UTC", description="IANA timezone for relative date computations")
     accounts: list[AccountConfig] = Field(default_factory=list)
     default_account: str | None = Field(default=None)

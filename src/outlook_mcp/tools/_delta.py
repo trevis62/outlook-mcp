@@ -24,6 +24,7 @@ cursor string.
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -31,6 +32,48 @@ from outlook_mcp.throttle import send_with_retry
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0/"
 GRAPH_TOKEN_SCOPE = "https://graph.microsoft.com/.default"
+
+# The only host a delta request may ever be sent to. ``delta_token`` is an
+# opaque cursor supplied by the caller, and the caller is an agent that may
+# be reading attacker-authored message bodies — so a token pointing at
+# ``https://evil.example`` would otherwise hand that host a Graph bearer
+# token with full mailbox scope. Same check applies to ``@odata.nextLink``
+# values, which arrive over the wire and are equally untrusted.
+GRAPH_HOST = "graph.microsoft.com"
+
+
+def require_graph_url(url: str) -> str:
+    """Return ``url`` unchanged if it points at Microsoft Graph, else raise.
+
+    Rejects anything that isn't ``https://graph.microsoft.com`` on the
+    default port. ``urlparse().hostname`` is what makes this safe against
+    the usual lookalikes: it excludes userinfo (so
+    ``https://graph.microsoft.com@evil.example`` resolves to
+    ``evil.example``) and it lowercases, so case games don't help either.
+
+    Raises:
+        ValueError: if the scheme, host, or port is not Graph's.
+    """
+    parsed = urlparse(url)
+
+    if parsed.scheme != "https":
+        raise ValueError(
+            f"Delta URL must use https, got {parsed.scheme or '(none)'!r}: {url[:80]}"
+        )
+
+    if parsed.hostname != GRAPH_HOST:
+        raise ValueError(
+            f"Delta URL must point at {GRAPH_HOST}, got "
+            f"{parsed.hostname or '(none)'!r}: {url[:80]}"
+        )
+
+    if parsed.port not in (None, 443):
+        raise ValueError(
+            f"Delta URL must use the default https port, got {parsed.port}: {url[:80]}"
+        )
+
+    return url
+
 
 # Safety cap multiplier — bound a single tool call to at most this many
 # items even when Graph keeps handing us more ``@odata.nextLink`` pages
@@ -107,7 +150,9 @@ async def fetch_delta_pages(
         page_size = 1
     cap = page_size * PAGE_SIZE_CAP_MULTIPLIER
 
-    url: str = delta_token if delta_token else initial_url
+    # Validate *before* minting a token: a hostile delta_token must fail
+    # without a Graph credential ever being created, let alone sent.
+    url: str = require_graph_url(delta_token if delta_token else initial_url)
     base_headers = {
         "Authorization": f"Bearer {_bearer_token(credential)}",
         "Accept": "application/json",
@@ -119,7 +164,12 @@ async def fetch_delta_pages(
     next_token: str | None = None
     has_more = False
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
+    # follow_redirects is httpx's default-off, pinned explicitly: a redirect
+    # is a URL we never validated, so following one would carry the bearer
+    # token to a host require_graph_url never approved.
+    async with httpx.AsyncClient(
+        timeout=timeout, follow_redirects=False
+    ) as client:
         while True:
             # Retry the delta GET on 429/503 (this raw-httpx path bypasses the
             # SDK's kiota RetryHandler, so it must honor Retry-After itself).
@@ -147,7 +197,8 @@ async def fetch_delta_pages(
                     next_token = next_link
                     has_more = True
                     break
-                url = next_link
+                # nextLink came over the wire — re-validate before following.
+                url = require_graph_url(next_link)
                 continue
 
             # Neither link present — possible on the no-changes path when

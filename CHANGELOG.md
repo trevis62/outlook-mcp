@@ -4,6 +4,46 @@ All notable changes to outlook-graph-mcp are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Security hardening pass. Treats every tool input as attacker-influenced, on the reasoning that an agent driving this server usually has message content written by third parties in its context.
+
+### Fixed — Access-token exfiltration via delta cursors (breaking for hostile input only)
+
+`delta_token` was used verbatim as a request URL with a Graph bearer token attached, and nothing checked the host. A cursor of `https://evil.example/x` handed that host credentials carrying `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite` and `Contacts.ReadWrite`. Reachable from `outlook_list_inbox_delta`, `outlook_list_events_delta`, `outlook_list_contacts_delta` and `outlook_changes_since` — all annotated `readOnlyHint=True`, so clients that auto-approve reads would not have prompted. Delta URLs are now validated against `https://graph.microsoft.com` before a token is minted, and again on every `@odata.nextLink` before it is followed.
+
+### Fixed — Arbitrary file write / read via the attachment tools (**breaking**)
+
+`outlook_download_attachment` wrote attacker-controlled bytes to any caller-named path, guarded only by a `".." in save_path` substring test that absolute paths bypass entirely. `outlook_send_with_attachments` and `outlook_attach_to_draft` read any caller-named path and mailed it out.
+
+Both are now confined to allowlisted directories, enforced on the symlink-resolved path:
+
+- **`download_dir`** (new, default `~/.outlook-mcp/downloads`, created `0700`) — the only place downloads may land.
+- **`attachment_source_dirs`** (new, default `[]`) — the only places attachments may be read from. **Empty means nothing may be attached.** This is deliberately the inverse of `allow_categories`, where empty means open.
+
+**Migration:** if you attach files, add the directories you send from to `attachment_source_dirs`. If you download attachments to a fixed location, either set `download_dir` to it or switch to paths relative to the default.
+
+### Fixed — `outlook-mcp logout` did not log out
+
+`cmd_logout` printed instructions but never deleted `~/.outlook-mcp/auth_record.json`, the record that enables silent token refresh — so a user who ran it was still logged in on the next server start. It now clears the record, and distinguishes that from the OS-credential-store entry, which still has to be removed by hand.
+
+### Changed — Plaintext token caching is now opt-in (**breaking on Linux without libsecret**)
+
+`allow_unencrypted_storage=True` was passed unconditionally, so on Linux without libsecret the refresh token was silently written to a plaintext file. Now gated behind `allow_unencrypted_token_cache` (default `false`): if no keyring is reachable and the flag is unset, credential creation raises `UnencryptedCacheError` with instructions, instead of quietly downgrading. macOS and Windows are unaffected (Keychain/DPAPI are always encrypted).
+
+### Fixed — Truncated attachments reported as sent
+
+`_upload_large_file` never checked the response to each chunk `PUT`, so a rejected chunk left the loop pushing the remainder and returning normally — the recipient got a corrupt file while the tool reported success. Each chunk response is now checked.
+
+### Security — Hardening with no known exploit
+
+- Delta requests pin `follow_redirects=False` explicitly. This is already httpx's default, but a redirect is a URL that never passed host validation, so the intent is now local to the call and guarded by a test.
+- CI workflow declares `permissions: contents: read` instead of inheriting the repository default.
+
+### Fixed — Documentation overstated token protection
+
+`SECURITY.md` claimed tokens are "never in plain files". On Linux without libsecret they are, in a `0600` file under `~/.IdentityService/`. Corrected to match the README, which already described the fallback accurately.
+
 ## [1.12.0] — 2026-07-18
 
 Performance & efficiency pass for recurring agent loops (personal-account mail + calendar). No new tools, no breaking changes; the default tool surface is unchanged (62 tools). Validated against a measured tool-schema token count (~8,644 tokens/turn) and a mid-2026 ecosystem review.

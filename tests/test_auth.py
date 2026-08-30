@@ -8,7 +8,7 @@ import pytest
 from outlook_mcp import auth as auth_module
 from outlook_mcp.auth import AuthManager, _unencrypted_fallback_will_be_used
 from outlook_mcp.config import Config
-from outlook_mcp.errors import AuthRequiredError
+from outlook_mcp.errors import AuthRequiredError, UnencryptedCacheError
 
 
 @pytest.fixture(autouse=True)
@@ -115,8 +115,12 @@ class TestUnencryptedFallbackWarning:
     """_make_credential emits a warning at most once when fallback is in use."""
 
     def test_warning_fires_once_when_fallback_active(self, caplog):
-        """A single warning is logged on the first credential build."""
-        config = Config(client_id="test-id")
+        """A single warning is logged on the first credential build.
+
+        Only reachable once the user has opted into plaintext caching —
+        without the opt-in, _make_credential raises instead of warning.
+        """
+        config = Config(client_id="test-id", allow_unencrypted_token_cache=True)
         auth = AuthManager(config)
 
         with (
@@ -149,3 +153,57 @@ class TestUnencryptedFallbackWarning:
 
         fallback_warnings = [r for r in caplog.records if "unencrypted" in r.getMessage().lower()]
         assert fallback_warnings == []
+
+
+class TestUnencryptedCacheOptIn:
+    """Plaintext token caching must be a deliberate choice, not a silent fallback."""
+
+    def test_refuses_to_build_credential_when_cache_would_be_plaintext(self):
+        """Default config must fail closed rather than write a token in the clear."""
+        auth = AuthManager(Config(client_id="test-id"))
+
+        with patch(
+            "outlook_mcp.auth._unencrypted_fallback_will_be_used", return_value=True
+        ):
+            with pytest.raises(UnencryptedCacheError):
+                auth._make_credential()
+
+    def test_builds_credential_when_user_opts_in(self):
+        """Explicit opt-in is honored — some Linux setups have no keyring at all."""
+        auth = AuthManager(
+            Config(client_id="test-id", allow_unencrypted_token_cache=True)
+        )
+
+        with patch(
+            "outlook_mcp.auth._unencrypted_fallback_will_be_used", return_value=True
+        ):
+            assert auth._make_credential() is not None
+
+    def test_builds_credential_when_encrypted_storage_is_available(self):
+        """macOS/Windows and Linux-with-libsecret are unaffected."""
+        auth = AuthManager(Config(client_id="test-id"))
+
+        with patch(
+            "outlook_mcp.auth._unencrypted_fallback_will_be_used", return_value=False
+        ):
+            assert auth._make_credential() is not None
+
+    def test_library_is_also_told_not_to_store_unencrypted(self):
+        """Defense in depth: our platform heuristic could be wrong.
+
+        Even if _unencrypted_fallback_will_be_used misjudges the platform,
+        azure-identity itself must refuse to write a plaintext cache unless
+        the user opted in.
+        """
+        auth = AuthManager(Config(client_id="test-id"))
+
+        with (
+            patch(
+                "outlook_mcp.auth._unencrypted_fallback_will_be_used",
+                return_value=False,
+            ),
+            patch("outlook_mcp.auth.TokenCachePersistenceOptions") as mock_opts,
+        ):
+            auth._make_credential()
+
+        assert mock_opts.call_args.kwargs["allow_unencrypted_storage"] is False

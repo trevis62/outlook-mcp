@@ -1,5 +1,12 @@
 name: CI
 on: [push, pull_request]
+
+# Least privilege: this workflow only reads the repo and runs tests. Without
+# this block the token inherits the repository default, which may be
+# read/write on older repos.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest

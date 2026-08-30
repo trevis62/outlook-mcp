@@ -391,6 +391,9 @@ Config lives at `~/.outlook-mcp/config.json` (created with `0600` permissions).
 | `timezone` | `string` | `"UTC"` | IANA timezone (e.g. `"America/New_York"`). Used for relative date computations in calendar tools. |
 | `read_only` | `bool` | `false` | When `true`, all write tools (send, reply, move, delete, create, update, RSVP) return an error. |
 | `allow_categories` | `list[string]` | `[]` | Optional. Restrict write tools to specific categories (see below). Empty list = all writes allowed when `read_only: false`. |
+| `allow_unencrypted_token_cache` | `bool` | `false` | Permit azure-identity to write the token cache to a plaintext file when no OS keyring is reachable (Linux without libsecret). Off by default: a plaintext refresh token is a long-lived mailbox credential, so the server refuses to start auth rather than downgrade silently. |
+| `download_dir` | `string` | `"~/.outlook-mcp/downloads"` | Only directory `outlook_download_attachment` may write into. Created `0700`. A relative `save_path` resolves inside it; an absolute one must already be inside it. Paths escaping it (via `..` or a symlink) are refused. |
+| `attachment_source_dirs` | `list[string]` | `[]` | Directories `outlook_send_with_attachments` / `outlook_attach_to_draft` may read files from. **Empty list = nothing may be attached.** Note this is the inverse of `allow_categories`: an empty allowlist here fails *closed*, because otherwise any file on the host could be mailed out. |
 
 ### Toolset selection (optional) — `OUTLOOK_MCP_TOOLSETS`
 
@@ -453,11 +456,12 @@ When `allow_categories` is set, any tool in a non-allowed category returns a per
 
 - **Zero telemetry.** No analytics, no tracking, no usage data collected.
 - **Zero local caching.** Every call goes directly to Microsoft Graph. No local email/calendar storage.
-- **Zero third-party calls.** The server only talks to `graph.microsoft.com` and `login.microsoftonline.com`.
+- **Zero third-party calls.** The server only talks to `graph.microsoft.com` and `login.microsoftonline.com`. Delta cursors (`delta_token`) are full URLs supplied by the caller, so they are validated against `graph.microsoft.com` before any request — a cursor pointing elsewhere is refused rather than handed a bearer token.
 - **Token storage.** OAuth tokens are persisted via `azure-identity`'s `TokenCachePersistenceOptions`. On macOS the OS Keychain is used; on Windows, DPAPI; on Linux with PyGObject/libsecret available, gnome-keyring. On Linux *without* libsecret (e.g. the isolated venv created by `uv tool install`), tokens fall back to a `0600` plaintext file at `~/.IdentityService/` and the MCP logs a one-time warning at startup. For encrypted storage on Linux, install `python3-gi gnome-keyring libsecret-1-0` and re-create the venv with `--system-site-packages`.
 - **No logging of sensitive data.** Message bodies, recipient addresses, and tokens are never logged.
 - **Config permissions.** Config directory is `0700`, config file is `0600`. Symlinked configs are rejected.
 - **Input validation.** All user inputs (email addresses, Graph IDs, OData filters, KQL queries, datetimes) are validated and sanitized before reaching the Graph API.
+- **Filesystem confinement.** The attachment tools treat host paths as untrusted: downloads are confined to `download_dir` and sends are restricted to `attachment_source_dirs`, both enforced on the symlink-resolved path. This matters because an agent driving these tools is usually acting on message content written by whoever emailed you.
 
 ---
 
