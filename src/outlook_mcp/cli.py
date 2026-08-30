@@ -60,11 +60,23 @@ def cmd_status() -> None:
 
 
 def cmd_logout() -> None:
-    """Clear cached credentials."""
-    # Token cache is in the system keychain under "outlook-mcp".
-    # DeviceCodeCredential doesn't expose a cache-clear API, so we
-    # just inform the user.
-    print("To fully clear cached tokens, remove 'outlook-mcp' from")
+    """Clear cached credentials.
+
+    Deletes the persisted AuthenticationRecord, which is what lets the MCP
+    server refresh a token silently — without removing it, a user who ran
+    `logout` is still logged in the next time the server starts.
+
+    The refresh token itself lives in the OS credential store, and
+    DeviceCodeCredential exposes no cache-clear API, so that part still has
+    to be done by hand. Say so rather than implying a complete logout.
+    """
+    config = load_config()
+    auth = AuthManager(config)
+    auth.logout()
+
+    print("Cleared the local auth record — silent token refresh is now disabled.")
+    print()
+    print("To also remove the cached refresh token, delete 'outlook-mcp' from")
     print("Keychain Access (macOS) or the credential store on your OS.")
     print()
     print("The MCP server will require re-authentication on next start.")
