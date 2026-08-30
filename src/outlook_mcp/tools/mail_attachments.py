@@ -7,6 +7,7 @@ import os
 from typing import Any
 
 from outlook_mcp.config import Config
+from outlook_mcp.paths import require_allowed_source, resolve_download_path
 from outlook_mcp.permissions import (
     CATEGORY_MAIL_DRAFTS,
     CATEGORY_MAIL_SEND,
@@ -20,11 +21,6 @@ _LARGE_FILE_THRESHOLD = 3 * 1024 * 1024
 _UPLOAD_CHUNK_SIZE = 320 * 1024 * 10  # 3.2 MB chunks
 
 
-def _validate_save_path(save_path: str) -> str:
-    """Validate save_path — reject path traversal attempts."""
-    if ".." in save_path:
-        raise ValueError(f"Path traversal not allowed in save_path: {save_path}")
-    return save_path
 
 
 def _make_inline_attachment(file_path: str) -> Any:
@@ -74,15 +70,22 @@ async def download_attachment(
     message_id: str,
     attachment_id: str,
     save_path: str,
+    *,
+    config: Config,
 ) -> dict:
     """Download an attachment.
 
     GET /me/messages/{id}/attachments/{att_id}
     Writes the file bytes to save_path and returns the path.
+
+    The bytes are attacker-controlled (anyone can mail an attachment), so
+    ``save_path`` is confined to ``config.download_dir``. A relative path
+    resolves inside it; an absolute path must already be inside it.
     """
     message_id = validate_graph_id(message_id)
     attachment_id = validate_graph_id(attachment_id)
-    _validate_save_path(save_path)
+    # Resolve before the network call so a rejected path costs no Graph request.
+    target = resolve_download_path(config, save_path)
 
     attachment = (
         await graph_client.me.messages.by_message_id(message_id)
@@ -94,10 +97,10 @@ async def download_attachment(
     # again corrupts binary files / raises UnicodeDecodeError (issue #25).
     content = attachment.content_bytes
 
-    with open(save_path, "wb") as f:
+    with open(target, "wb") as f:
         f.write(content)
     return {
-        "saved_to": save_path,
+        "saved_to": str(target),
         "name": attachment.name,
         "size": attachment.size,
         "content_type": attachment.content_type,
@@ -157,10 +160,9 @@ async def send_with_attachments(
     validated_bcc = [validate_email(e) for e in bcc] if bcc else []
     validated_reply_to = [validate_email(e) for e in reply_to] if reply_to else []
 
-    # Validate all files exist
-    for path in attachment_paths:
-        if not os.path.isfile(path):
-            raise FileNotFoundError(f"Attachment file not found: {path}")
+    # Confine reads to the configured source dirs before touching any file:
+    # without this, any path on the host could be mailed out.
+    attachment_paths = [str(require_allowed_source(config, p)) for p in attachment_paths]
 
     # Partition files into small (inline) and large (upload session)
     small_files = []
@@ -281,10 +283,8 @@ async def attach_to_draft(
     check_permission(config, CATEGORY_MAIL_DRAFTS, "outlook_attach_to_draft")
     draft_id = validate_graph_id(draft_id)
 
-    # Validate all files exist before any API call
-    for path in attachment_paths:
-        if not os.path.isfile(path):
-            raise FileNotFoundError(f"Attachment file not found: {path}")
+    # Confine reads to the configured source dirs before any API call.
+    attachment_paths = [str(require_allowed_source(config, p)) for p in attachment_paths]
 
     # Partition files into small (inline) and large (upload session)
     small_files: list[str] = []

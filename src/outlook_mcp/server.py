@@ -1084,13 +1084,19 @@ async def outlook_download_attachment(
     attachment_id: str,
     save_path: str,
 ) -> dict:
-    """Download an attachment from a message and write decoded bytes to `save_path` on the host."""
+    """Download an attachment and write it under the configured download_dir.
+
+    `save_path` is relative to `download_dir` (default `~/.outlook-mcp/downloads`);
+    absolute paths must already point inside it. Paths escaping it are refused.
+    """
     client = _get_graph_client(ctx)
+    config = _get_config(ctx)
     return await mail_attachments.download_attachment(
         client.sdk_client,
         message_id,
         attachment_id,
         save_path,
+        config=config,
     )
 
 
