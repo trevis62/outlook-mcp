@@ -12,6 +12,8 @@ import pytest
 
 from outlook_mcp.tools._delta import fetch_delta_pages, require_graph_url
 
+SCOPES = ["https://graph.microsoft.com/Mail.ReadWrite"]
+
 GRAPH_DELTA_URL = (
     "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta"
     "?$deltatoken=abc123"
@@ -77,6 +79,7 @@ async def test_hostile_delta_token_never_reaches_the_network():
                 initial_url="",
                 delta_token="https://evil.example/collect",
                 page_size=10,
+                scopes=SCOPES,
             )
 
     fake_client.get.assert_not_called()
@@ -116,6 +119,7 @@ async def test_hostile_next_link_is_rejected_mid_walk():
                 initial_url=GRAPH_DELTA_URL,
                 delta_token=None,
                 page_size=10,
+                scopes=SCOPES,
             )
 
     assert calls == [GRAPH_DELTA_URL]
@@ -147,6 +151,7 @@ async def test_valid_graph_delta_token_still_works():
             initial_url="",
             delta_token=GRAPH_DELTA_URL,
             page_size=10,
+            scopes=SCOPES,
         )
 
     assert items == [{"id": "m1"}]
@@ -189,6 +194,41 @@ async def test_redirects_away_from_graph_are_not_followed():
                 initial_url=GRAPH_DELTA_URL,
                 delta_token=None,
                 page_size=10,
+                scopes=SCOPES,
             )
 
     assert seen == [GRAPH_DELTA_URL]
+
+
+@pytest.mark.asyncio
+async def test_delta_mints_its_token_with_the_clients_scopes():
+    """The raw-httpx path must not request `.default` of its own accord.
+
+    A scope set differing from the one the credential cached under causes an
+    MSAL cache miss, and `.default` additionally 403s on personal accounts.
+    """
+    cred = _credential()
+    scopes = ["https://graph.microsoft.com/Mail.Read"]
+
+    page = MagicMock()
+    page.status_code = 200
+    page.raise_for_status = MagicMock()
+    page.json = MagicMock(
+        return_value={"value": [], "@odata.deltaLink": GRAPH_DELTA_URL}
+    )
+
+    fake_client = MagicMock()
+    fake_client.get = AsyncMock(return_value=page)
+    fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+    fake_client.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("outlook_mcp.tools._delta.httpx.AsyncClient", return_value=fake_client):
+        await fetch_delta_pages(
+            cred,
+            initial_url=GRAPH_DELTA_URL,
+            delta_token=None,
+            page_size=10,
+            scopes=scopes,
+        )
+
+    cred.get_token.assert_called_once_with(*scopes)

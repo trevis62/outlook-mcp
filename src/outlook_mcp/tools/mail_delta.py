@@ -106,6 +106,7 @@ async def list_inbox_delta(
 
     sdk_client = graph_client.sdk_client
     credential = graph_client.credential
+    scopes = graph_client.scopes
 
     initial_url = ""
     if not delta_token:
@@ -124,6 +125,7 @@ async def list_inbox_delta(
         initial_url=initial_url,
         delta_token=delta_token,
         page_size=page_size,
+        scopes=scopes,
     )
 
     messages = [format_delta_item(item, _format_message_delta) for item in raw_items]

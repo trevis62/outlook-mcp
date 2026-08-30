@@ -6,6 +6,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed — 403 ErrorAccessDenied on every mailbox endpoint (personal accounts)
+
+Token acquisition used the `https://graph.microsoft.com/.default` scope. That works for Entra work accounts, but on the `/consumers` endpoint it yields a token Graph rejects with 403 `ErrorAccessDenied` on every mailbox endpoint — `/me` succeeds, `/me/messages` does not. Since personal Microsoft accounts are this project's primary target, the server was unusable on a correctly-configured app registration: preflight reported 11 of 13 endpoints failing.
+
+Verified against a live outlook.com account, same account and moment: `.default` token → 403, explicitly-scoped token → 200. All 13 preflight endpoints now pass, including To Do, which previously returned 401.
+
+Token acquisition now requests explicit fully-qualified delegated scopes. Every call site must use the *same* list, because MSAL keys cached access tokens by scope and a mismatch causes a cache miss that drops the server into an interactive device-code flow it cannot answer — so `GraphClient` carries its scope list and the raw-httpx paths (`_delta`, `mail_read`) reuse it instead of hardcoding their own. `scripts/preflight.py` was hardcoding `.default` too, and hung on exactly this cache miss until fixed.
+
+`read_only` no longer narrows the requested scopes: the documented app registration grants only the ReadWrite variants, and scope matching is literal, so asking for `Mail.Read` against a `Mail.ReadWrite` consent hangs. It remains server-side enforcement via `check_permission`, as it always effectively was. New `graph_scopes` config overrides the scope list for anyone registering a narrower Azure app that wants token-level restriction.
+
+**Migration:** existing installs must re-run `outlook-mcp auth` once — cached `.default` tokens do not satisfy the new scope request.
+
 Security hardening pass. Treats every tool input as attacker-influenced, on the reasoning that an agent driving this server usually has message content written by third parties in its context.
 
 ### Fixed — Access-token exfiltration via delta cursors (breaking for hostile input only)

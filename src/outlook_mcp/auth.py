@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 # and try_cached_token, often multiple times during startup.
 _warned_unencrypted_fallback = False
 
-# Display-only; token acquisition uses .default (GRAPH_DEFAULT_SCOPE below).
+# Scope names; graph_token_scopes() qualifies these for token acquisition.
 SCOPES_READWRITE = [
     "Mail.ReadWrite",
     "Mail.Send",
@@ -33,6 +33,9 @@ SCOPES_READWRITE = [
     "User.Read",
 ]
 
+# Not requested by default — the README's app registration grants only the
+# ReadWrite variants. Provided as the list to copy into config.graph_scopes
+# if you register a read-only Azure app and want a token that cannot write.
 SCOPES_READONLY = [
     "Mail.Read",
     "Calendars.Read",
@@ -59,10 +62,38 @@ def _unencrypted_fallback_will_be_used() -> bool:
     return importlib.util.find_spec("gi") is None
 
 
-# The Graph SDK always requests .default scope internally, so we must
-# acquire and cache tokens with the same scope to avoid cache misses
-# that trigger interactive auth in the background.
-GRAPH_DEFAULT_SCOPE = "https://graph.microsoft.com/.default"
+GRAPH_RESOURCE = "https://graph.microsoft.com/"
+
+# Token acquisition uses explicit delegated scopes, NOT `.default`.
+#
+# `.default` means "every permission statically configured for this app" and
+# works for Entra work accounts, but on the /consumers endpoint it yields a
+# token Graph rejects with 403 ErrorAccessDenied on every mailbox endpoint —
+# /me succeeds, /me/messages does not. Personal accounts are this project's
+# primary target, so `.default` is unusable here.
+#
+# Every token request in the codebase must use *this same list*: MSAL caches
+# access tokens keyed by scope, so asking for a different set anywhere causes
+# a cache miss and a background interactive auth the server cannot answer.
+# That is why GraphClient carries its scopes and the raw-httpx paths reuse
+# them instead of hardcoding their own.
+
+
+def graph_token_scopes(config: Config | None = None) -> list[str]:
+    """Fully-qualified Graph scopes for token acquisition.
+
+    Deliberately independent of ``read_only``. The app registration the README
+    documents grants only the ReadWrite variants, and scope matching is
+    literal — requesting Mail.Read when Mail.ReadWrite was consented misses
+    the MSAL cache and drops into an interactive device-code flow the server
+    cannot answer. ``read_only`` is enforced by ``check_permission`` instead.
+
+    Users who want token-level restriction register a narrower Azure app and
+    name its scopes in ``config.graph_scopes``.
+    """
+    if config is not None and config.graph_scopes:
+        return list(config.graph_scopes)
+    return [f"{GRAPH_RESOURCE}{name}" for name in SCOPES_READWRITE]
 
 
 def _auth_record_path() -> Path:
@@ -99,12 +130,16 @@ class AuthManager:
         self._active_account: str | None = config.default_account
 
     def get_scopes(self) -> list[str]:
-        """Return individual scopes for display/consent purposes."""
-        return SCOPES_READONLY if self.config.read_only else SCOPES_READWRITE
+        """Return individual scopes for display/consent purposes.
+
+        Derived from the token scopes so the consent prompt can never
+        advertise something different from what is actually requested.
+        """
+        return [s.rsplit("/", 1)[-1] for s in self.get_token_scopes()]
 
     def get_token_scopes(self) -> list[str]:
         """Return scopes for token acquisition — must match what the SDK requests."""
-        return [GRAPH_DEFAULT_SCOPE]
+        return graph_token_scopes(self.config)
 
     def is_authenticated(self) -> bool:
         """Check if we have an active credential."""
@@ -182,7 +217,6 @@ class AuthManager:
 
         cred = self._make_credential(prompt_callback=_on_device_code)
         # get_token() uses cache first, falls back to interactive.
-        # Must use .default scope to match what the Graph SDK requests.
         cred.get_token(*self.get_token_scopes())
 
         # Save the auth record for silent refresh by the MCP server

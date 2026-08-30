@@ -40,15 +40,29 @@ def test_auth_scopes_default():
 
 
 def test_auth_scopes_read_only():
-    """Read-only mode uses read scopes."""
+    """read_only no longer narrows the displayed consent scopes.
+
+    It previously advertised Mail.Read etc., but those are not what gets
+    requested — the documented app registration grants only the ReadWrite
+    variants, and asking for scopes that were never consented drops the
+    server into an interactive flow. Display now mirrors the real request so
+    the consent prompt cannot advertise something different from what is
+    asked for. Token-level narrowing is opt-in via config.graph_scopes.
+    """
     config = Config(client_id="test-id", read_only=True)
     auth = AuthManager(config)
     scopes = auth.get_scopes()
-    assert "Mail.Read" in scopes
-    assert "Mail.ReadWrite" not in scopes
-    assert "Mail.Send" not in scopes
-    assert "Calendars.Read" in scopes
-    assert "Calendars.ReadWrite" not in scopes
+    assert "Mail.ReadWrite" in scopes
+    assert scopes == AuthManager(Config(client_id="test-id")).get_scopes()
+
+
+def test_auth_scopes_follow_graph_scopes_override():
+    """A narrower app registration is reflected in the consent display."""
+    config = Config(
+        client_id="test-id",
+        graph_scopes=["https://graph.microsoft.com/Mail.Read"],
+    )
+    assert AuthManager(config).get_scopes() == ["Mail.Read"]
 
 
 def test_auth_not_authenticated():
@@ -207,3 +221,64 @@ class TestUnencryptedCacheOptIn:
             auth._make_credential()
 
         assert mock_opts.call_args.kwargs["allow_unencrypted_storage"] is False
+
+
+class TestDelegatedTokenScopes:
+    """Token acquisition must use explicit delegated scopes, not `.default`.
+
+    `.default` yields a token that Microsoft Graph rejects with 403
+    ErrorAccessDenied on every mailbox endpoint for personal Microsoft
+    accounts (verified against a live outlook.com account: /me returns 200,
+    /me/messages returns 403, while the same account with explicitly-scoped
+    tokens returns 200 for both). Personal accounts are this project's
+    primary target, so `.default` must not appear in a token request.
+    """
+
+    def test_read_write_scopes_are_explicit_and_graph_qualified(self):
+        auth = AuthManager(Config(client_id="test-id"))
+        scopes = auth.get_token_scopes()
+
+        assert all(s.startswith("https://graph.microsoft.com/") for s in scopes)
+        assert not any(s.endswith("/.default") for s in scopes)
+        assert "https://graph.microsoft.com/Mail.ReadWrite" in scopes
+        assert "https://graph.microsoft.com/Mail.Send" in scopes
+        assert "https://graph.microsoft.com/Calendars.ReadWrite" in scopes
+
+    def test_read_only_does_not_narrow_token_scopes(self):
+        """read_only must not change which scopes are requested.
+
+        Tempting to request Mail.Read here, but the app registration the
+        README documents grants only the ReadWrite variants. Scope matching
+        is literal — Mail.ReadWrite does not satisfy a request for Mail.Read
+        — so narrowing produces an MSAL cache miss and drops the server into
+        an interactive device-code flow it cannot answer. Verified against a
+        live account: it hangs.
+
+        read_only stays what it already was: server-side enforcement via
+        check_permission, not a token-scope restriction.
+        """
+        rw = AuthManager(Config(client_id="test-id")).get_token_scopes()
+        ro = AuthManager(Config(client_id="test-id", read_only=True)).get_token_scopes()
+        assert ro == rw
+
+    def test_graph_scopes_override_is_honored(self):
+        """Escape hatch for an app registration granting only read permissions.
+
+        Someone who wants token-level restriction registers a narrower Azure
+        app and names the scopes here, rather than having them inferred.
+        """
+        custom = ["https://graph.microsoft.com/Mail.Read"]
+        auth = AuthManager(Config(client_id="test-id", graph_scopes=custom))
+        assert auth.get_token_scopes() == custom
+
+    def test_token_scopes_match_the_advertised_consent_scopes(self):
+        """Consent display and token request must not drift apart.
+
+        If they diverge, the user consents to one set and the server
+        requests another, which is exactly the cache-miss / silent-reauth
+        failure the previous `.default` approach was working around.
+        """
+        auth = AuthManager(Config(client_id="test-id"))
+        display = set(auth.get_scopes())
+        requested = {s.rsplit("/", 1)[-1] for s in auth.get_token_scopes()}
+        assert display == requested

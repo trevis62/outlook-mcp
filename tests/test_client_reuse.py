@@ -12,6 +12,9 @@ from outlook_mcp import server as server_mod
 
 
 def _ctx_with_auth(auth):
+    # Kiota validates scopes are real strings, and GraphClient now receives
+    # the config-derived list rather than defaulting to `.default`.
+    auth.get_token_scopes.return_value = ["https://graph.microsoft.com/Mail.ReadWrite"]
     ctx = MagicMock()
     ctx.request_context.lifespan_context = {"auth": auth, "config": MagicMock()}
     return ctx

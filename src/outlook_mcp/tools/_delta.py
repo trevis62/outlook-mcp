@@ -31,7 +31,6 @@ import httpx
 from outlook_mcp.throttle import send_with_retry
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0/"
-GRAPH_TOKEN_SCOPE = "https://graph.microsoft.com/.default"
 
 # The only host a delta request may ever be sent to. ``delta_token`` is an
 # opaque cursor supplied by the caller, and the caller is an agent that may
@@ -82,9 +81,14 @@ def require_graph_url(url: str) -> str:
 PAGE_SIZE_CAP_MULTIPLIER = 4
 
 
-def _bearer_token(credential: Any) -> str:
-    """Mint a Graph access token from an azure-identity credential."""
-    tok = credential.get_token(GRAPH_TOKEN_SCOPE)
+def _bearer_token(credential: Any, scopes: list[str]) -> str:
+    """Mint a Graph access token from an azure-identity credential.
+
+    ``scopes`` must be the same list the GraphClient was built with — see
+    ``auth.graph_token_scopes``. Requesting a different set here would miss
+    the MSAL cache and trigger a background interactive auth.
+    """
+    tok = credential.get_token(*scopes)
     return tok.token
 
 
@@ -113,6 +117,7 @@ async def fetch_delta_pages(
     initial_url: str,
     delta_token: str | None,
     page_size: int,
+    scopes: list[str],
     headers: dict[str, str] | None = None,
     timeout: float = 30.0,
 ) -> tuple[list[dict], str | None, bool]:
@@ -154,7 +159,7 @@ async def fetch_delta_pages(
     # without a Graph credential ever being created, let alone sent.
     url: str = require_graph_url(delta_token if delta_token else initial_url)
     base_headers = {
-        "Authorization": f"Bearer {_bearer_token(credential)}",
+        "Authorization": f"Bearer {_bearer_token(credential, scopes)}",
         "Accept": "application/json",
     }
     if headers:

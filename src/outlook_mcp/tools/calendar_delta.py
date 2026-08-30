@@ -88,6 +88,7 @@ async def list_events_delta(
     """
     page_size = _clamp(page_size, 1, 100)
     credential = graph_client.credential
+    scopes = graph_client.scopes
 
     initial_url = ""
     if not delta_token:
@@ -110,6 +111,7 @@ async def list_events_delta(
         initial_url=initial_url,
         delta_token=delta_token,
         page_size=page_size,
+        scopes=scopes,
         headers={"Prefer": f"odata.maxpagesize={page_size}"},
     )
 
