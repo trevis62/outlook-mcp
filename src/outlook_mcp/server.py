@@ -87,7 +87,7 @@ def _get_graph_client(ctx: Context) -> GraphClient:
     lifespan_ctx = ctx.request_context.lifespan_context
     cached = lifespan_ctx.get("graph_client")
     if cached is None or cached.credential is not credential:
-        cached = GraphClient(credential)
+        cached = GraphClient(credential, scopes=auth.get_token_scopes())
         lifespan_ctx["graph_client"] = cached
     return cached
 

@@ -87,9 +87,13 @@ def classify(status_code: int) -> str:
 def fetch_token() -> str:
     config = load_config()
     am = AuthManager(config)
-    am.try_cached_token(am.get_token_scopes())
+    scopes = am.get_token_scopes()
+    am.try_cached_token(scopes)
     cred = am.get_credential()
-    tok = cred.get_token("https://graph.microsoft.com/.default")
+    # Must be the same scopes the cache holds. Requesting a different set
+    # (e.g. `.default`) misses the MSAL cache and drops into an interactive
+    # device-code flow that blocks a non-interactive preflight run.
+    tok = cred.get_token(*scopes)
     return tok.token
 
 

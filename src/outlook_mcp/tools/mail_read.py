@@ -24,7 +24,6 @@ from outlook_mcp.validation import (
 )
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0/"
-GRAPH_TOKEN_SCOPE = "https://graph.microsoft.com/.default"
 BATCH_URL = GRAPH_BASE + "$batch"
 MAX_BATCH_SIZE = 20
 
@@ -541,7 +540,9 @@ async def read_messages(
             "url": _build_read_subrequest_url(mid, include_deferred_send),
         })
 
-    tok = credential.get_token(GRAPH_TOKEN_SCOPE)
+    # Same scopes the GraphClient cached under — never `.default`, which
+    # 403s on personal accounts (see auth.graph_token_scopes).
+    tok = credential.get_token(*graph_client.scopes)
     headers = {
         "Authorization": f"Bearer {tok.token}",
         "Content-Type": "application/json",

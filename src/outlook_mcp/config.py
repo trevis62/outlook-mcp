@@ -52,6 +52,17 @@ class Config(BaseModel):
             "an empty allowlist here must not grant read access to the whole host."
         ),
     )
+    graph_scopes: list[str] | None = Field(
+        default=None,
+        description=(
+            "Override the delegated Graph scopes requested at token acquisition. "
+            "Defaults to the read-write set matching the app registration the "
+            "README documents. Set this only if you registered an Azure app "
+            "granting a narrower set (e.g. read-only permissions) — the scopes "
+            "requested must be ones your app has actually been consented, or "
+            "token acquisition falls into an interactive flow."
+        ),
+    )
     allow_unencrypted_token_cache: bool = Field(
         default=False,
         description=(
