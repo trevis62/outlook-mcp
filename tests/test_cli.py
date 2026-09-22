@@ -10,7 +10,7 @@ from outlook_mcp.config import Config
 def _patch_paths(tmp_path):
     """Point the auth record at tmp_path and stub out config loading."""
     return (
-        patch("outlook_mcp.auth.DEFAULT_CONFIG_DIR", str(tmp_path)),
+        patch.dict("os.environ", {"OUTLOOK_MCP_CONFIG_DIR": str(tmp_path)}),
         patch("outlook_mcp.cli.load_config", return_value=Config(client_id="test")),
     )
 

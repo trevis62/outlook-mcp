@@ -396,6 +396,18 @@ Config lives at `~/.outlook-mcp/config.json` (created with `0600` permissions).
 | `download_dir` | `string` | `"~/.outlook-mcp/downloads"` | Only directory `outlook_download_attachment` may write into. Created `0700`. A relative `save_path` resolves inside it; an absolute one must already be inside it. Paths escaping it (via `..` or a symlink) are refused. |
 | `attachment_source_dirs` | `list[string]` | `[]` | Directories `outlook_send_with_attachments` / `outlook_attach_to_draft` may read files from. **Empty list = nothing may be attached.** Note this is the inverse of `allow_categories`: an empty allowlist here fails *closed*, because otherwise any file on the host could be mailed out. |
 
+### Multiple accounts — `OUTLOOK_MCP_CONFIG_DIR`
+
+Run one server instance per mailbox. Set `OUTLOOK_MCP_CONFIG_DIR` (default `~/.outlook-mcp`) to give each instance its own `config.json` and auth record; the same Azure app `client_id` works for every personal account. Each instance's tools get their own MCP namespace, so an agent can read both mailboxes in parallel without switching state.
+
+```bash
+mkdir -p ~/.outlook-mcp-second && cp ~/.outlook-mcp/config.json ~/.outlook-mcp-second/
+OUTLOOK_MCP_CONFIG_DIR=~/.outlook-mcp-second outlook-mcp auth   # sign in as the second account
+claude mcp add outlook-second -e OUTLOOK_MCP_CONFIG_DIR=$HOME/.outlook-mcp-second -- outlook-mcp
+```
+
+Refresh tokens for all accounts share the one OS keyring entry; each instance's auth record selects its own account from it.
+
 ### Toolset selection (optional) — `OUTLOOK_MCP_TOOLSETS`
 
 All 62 tool schemas load into the client's context every turn (~8.6k tokens). A client that only needs part of the surface can set the `OUTLOOK_MCP_TOOLSETS` environment variable to a comma-separated list of tool groups, and only those load. The `account` group (auth / identity) is always available.

@@ -11,6 +11,16 @@ from outlook_mcp.permissions import VALID_CATEGORIES
 
 DEFAULT_TENANT_ID = "consumers"
 DEFAULT_CONFIG_DIR = os.path.expanduser("~/.outlook-mcp")
+CONFIG_DIR_ENV = "OUTLOOK_MCP_CONFIG_DIR"
+
+
+def get_config_dir() -> str:
+    """Return the config directory, overridable via ``OUTLOOK_MCP_CONFIG_DIR``.
+
+    Pointing a second server instance at its own directory gives it its own
+    config.json and AuthenticationRecord — the way to serve several accounts.
+    """
+    return os.path.expanduser(os.environ.get(CONFIG_DIR_ENV) or DEFAULT_CONFIG_DIR)
 
 
 class AccountConfig(BaseModel):
@@ -112,15 +122,17 @@ def _atomic_write(file_path: Path, data: str) -> None:
         raise
 
 
-def save_config(config: Config, config_dir: str = DEFAULT_CONFIG_DIR) -> None:
+def save_config(config: Config, config_dir: str | None = None) -> None:
     """Save config to disk."""
+    config_dir = config_dir or get_config_dir()
     dir_path = _ensure_dir(config_dir)
     file_path = dir_path / "config.json"
     _atomic_write(file_path, config.model_dump_json(indent=2))
 
 
-def load_config(config_dir: str = DEFAULT_CONFIG_DIR) -> Config:
+def load_config(config_dir: str | None = None) -> Config:
     """Load config from disk. Returns defaults if no config file exists."""
+    config_dir = config_dir or get_config_dir()
     file_path = Path(config_dir) / "config.json"
 
     if not file_path.exists():

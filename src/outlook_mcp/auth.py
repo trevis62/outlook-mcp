@@ -13,7 +13,7 @@ from azure.identity import (
     TokenCachePersistenceOptions,
 )
 
-from outlook_mcp.config import DEFAULT_CONFIG_DIR, Config
+from outlook_mcp.config import Config, get_config_dir
 from outlook_mcp.errors import AuthRequiredError, UnencryptedCacheError
 
 logger = logging.getLogger(__name__)
@@ -97,7 +97,7 @@ def graph_token_scopes(config: Config | None = None) -> list[str]:
 
 
 def _auth_record_path() -> Path:
-    return Path(DEFAULT_CONFIG_DIR) / AUTH_RECORD_FILE
+    return Path(get_config_dir()) / AUTH_RECORD_FILE
 
 
 def _save_auth_record(record: AuthenticationRecord) -> None:

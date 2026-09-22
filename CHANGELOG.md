@@ -6,6 +6,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added — `OUTLOOK_MCP_CONFIG_DIR` for multiple accounts
+
+The config directory (config.json and the auth record) can now be set with `OUTLOOK_MCP_CONFIG_DIR`, so several server instances — one per mailbox — can run side by side. See "Multiple accounts" in the README.
+
 ### Fixed — 403 ErrorAccessDenied on every mailbox endpoint (personal accounts)
 
 Token acquisition used the `https://graph.microsoft.com/.default` scope. That works for Entra work accounts, but on the `/consumers` endpoint it yields a token Graph rejects with 403 `ErrorAccessDenied` on every mailbox endpoint — `/me` succeeds, `/me/messages` does not. Since personal Microsoft accounts are this project's primary target, the server was unusable on a correctly-configured app registration: preflight reported 11 of 13 endpoints failing.
