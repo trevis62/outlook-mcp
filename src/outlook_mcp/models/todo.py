@@ -69,9 +69,7 @@ class CreateTaskInput(BaseModel):
             "monthly",
             "yearly",
         ):
-            raise ValueError(
-                f"recurrence must be daily/weekdays/weekly/monthly/yearly; got {v}"
-            )
+            raise ValueError(f"recurrence must be daily/weekdays/weekly/monthly/yearly; got {v}")
         return v
 
 

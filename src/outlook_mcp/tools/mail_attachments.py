@@ -23,8 +23,6 @@ _LARGE_FILE_THRESHOLD = 3 * 1024 * 1024
 _UPLOAD_CHUNK_SIZE = 320 * 1024 * 10  # 3.2 MB chunks
 
 
-
-
 def _make_inline_attachment(file_path: str) -> Any:
     """Build a FileAttachment SDK object from a local file (<=3MB path)."""
     from msgraph.generated.models.file_attachment import FileAttachment
@@ -254,10 +252,9 @@ async def send_with_attachments(
             upload_body = CreateUploadSessionPostRequestBody()
             upload_body.attachment_item = att_item
 
-            session = (
-                await graph_client.me.messages.by_message_id(draft.id)
-                .attachments.create_upload_session.post(upload_body)
-            )
+            session = await graph_client.me.messages.by_message_id(
+                draft.id
+            ).attachments.create_upload_session.post(upload_body)
 
             await _upload_large_file(session.upload_url, file_path, file_size)
 

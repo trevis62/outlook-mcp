@@ -72,9 +72,7 @@ def resolve_download_path(config: Config, save_path: str) -> Path:
     # symlink planted among them is exactly the escape we're blocking.
     parent = _real(candidate.parent)
     if not _is_within(parent, root):
-        raise ValueError(
-            f"save_path resolves outside the download directory ({root}): {save_path}"
-        )
+        raise ValueError(f"save_path resolves outside the download directory ({root}): {save_path}")
 
     parent.mkdir(parents=True, exist_ok=True)
     return parent / candidate.name
@@ -104,9 +102,7 @@ def require_allowed_source(config: Config, path: str) -> Path:
     # the caller is even entitled to ask about it.
     roots = [_real(d) for d in config.attachment_source_dirs]
     if not any(_is_within(resolved, root) for root in roots):
-        raise ValueError(
-            f"Attachment path is not in an allowed source directory: {path}"
-        )
+        raise ValueError(f"Attachment path is not in an allowed source directory: {path}")
 
     if not resolved.exists():
         raise FileNotFoundError(f"Attachment file not found: {path}")

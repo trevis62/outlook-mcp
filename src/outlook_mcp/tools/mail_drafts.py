@@ -258,6 +258,7 @@ async def update_draft(
             from msgraph.generated.models.single_value_legacy_extended_property import (
                 SingleValueLegacyExtendedProperty,
             )
+
             prop = SingleValueLegacyExtendedProperty()
             prop.id = _PR_DEFERRED_SEND_TIME_ID
             prop.value = ""

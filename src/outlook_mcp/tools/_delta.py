@@ -56,14 +56,11 @@ def require_graph_url(url: str) -> str:
     parsed = urlparse(url)
 
     if parsed.scheme != "https":
-        raise ValueError(
-            f"Delta URL must use https, got {parsed.scheme or '(none)'!r}: {url[:80]}"
-        )
+        raise ValueError(f"Delta URL must use https, got {parsed.scheme or '(none)'!r}: {url[:80]}")
 
     if parsed.hostname != GRAPH_HOST:
         raise ValueError(
-            f"Delta URL must point at {GRAPH_HOST}, got "
-            f"{parsed.hostname or '(none)'!r}: {url[:80]}"
+            f"Delta URL must point at {GRAPH_HOST}, got {parsed.hostname or '(none)'!r}: {url[:80]}"
         )
 
     if parsed.port not in (None, 443):
@@ -172,9 +169,7 @@ async def fetch_delta_pages(
     # follow_redirects is httpx's default-off, pinned explicitly: a redirect
     # is a URL we never validated, so following one would carry the bearer
     # token to a host require_graph_url never approved.
-    async with httpx.AsyncClient(
-        timeout=timeout, follow_redirects=False
-    ) as client:
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
         while True:
             # Retry the delta GET on 429/503 (this raw-httpx path bypasses the
             # SDK's kiota RetryHandler, so it must honor Retry-After itself).

@@ -22,16 +22,21 @@ _ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
 
 # ISO 8601 datetime: strict pattern to reject injection attempts
 _ISO_DATETIME_RE = re.compile(
-    r"^\d{4}-\d{2}-\d{2}"           # date
-    r"(?:T\d{2}:\d{2}:\d{2}"        # optional time
-    r"(?:\.\d+)?"                    # optional fractional seconds
-    r"(?:Z|[+-]\d{2}:\d{2})?"       # optional timezone
+    r"^\d{4}-\d{2}-\d{2}"  # date
+    r"(?:T\d{2}:\d{2}:\d{2}"  # optional time
+    r"(?:\.\d+)?"  # optional fractional seconds
+    r"(?:Z|[+-]\d{2}:\d{2})?"  # optional timezone
     r")?$"
 )
 
 WELL_KNOWN_FOLDERS = {
-    "inbox", "drafts", "sentitems", "deleteditems",
-    "junkemail", "archive", "outbox",
+    "inbox",
+    "drafts",
+    "sentitems",
+    "deleteditems",
+    "junkemail",
+    "archive",
+    "outbox",
 }
 
 

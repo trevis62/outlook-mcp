@@ -189,8 +189,7 @@ async def list_events(
         # We need attendees + isOrganizer to compute the concise fields.
         # Keep the select tight to avoid pulling full event bodies.
         query_params["$select"] = (
-            "id,subject,start,end,location,isAllDay,"
-            "isOrganizer,isOnlineMeeting,attendees"
+            "id,subject,start,end,location,isAllDay,isOrganizer,isOnlineMeeting,attendees"
         )
     else:
         query_params["$select"] = (

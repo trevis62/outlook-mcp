@@ -63,9 +63,7 @@ def _build_recurrence(recurrence: dict) -> Any:
                 return enum_cls[target]
             except KeyError as e:
                 valid = [m.value for m in enum_cls]
-                raise ValueError(
-                    f"Invalid {label} '{value}'. Must be one of: {valid}"
-                ) from e
+                raise ValueError(f"Invalid {label} '{value}'. Must be one of: {valid}") from e
 
     pattern = RecurrencePattern()
     if "type" in pattern_in:
