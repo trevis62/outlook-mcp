@@ -1,6 +1,7 @@
 """Tests for auth module."""
 
 import logging
+import sys
 from unittest.mock import patch
 
 import pytest
@@ -176,30 +177,22 @@ class TestUnencryptedCacheOptIn:
         """Default config must fail closed rather than write a token in the clear."""
         auth = AuthManager(Config(client_id="test-id"))
 
-        with patch(
-            "outlook_mcp.auth._unencrypted_fallback_will_be_used", return_value=True
-        ):
+        with patch("outlook_mcp.auth._unencrypted_fallback_will_be_used", return_value=True):
             with pytest.raises(UnencryptedCacheError):
                 auth._make_credential()
 
     def test_builds_credential_when_user_opts_in(self):
         """Explicit opt-in is honored — some Linux setups have no keyring at all."""
-        auth = AuthManager(
-            Config(client_id="test-id", allow_unencrypted_token_cache=True)
-        )
+        auth = AuthManager(Config(client_id="test-id", allow_unencrypted_token_cache=True))
 
-        with patch(
-            "outlook_mcp.auth._unencrypted_fallback_will_be_used", return_value=True
-        ):
+        with patch("outlook_mcp.auth._unencrypted_fallback_will_be_used", return_value=True):
             assert auth._make_credential() is not None
 
     def test_builds_credential_when_encrypted_storage_is_available(self):
         """macOS/Windows and Linux-with-libsecret are unaffected."""
         auth = AuthManager(Config(client_id="test-id"))
 
-        with patch(
-            "outlook_mcp.auth._unencrypted_fallback_will_be_used", return_value=False
-        ):
+        with patch("outlook_mcp.auth._unencrypted_fallback_will_be_used", return_value=False):
             assert auth._make_credential() is not None
 
     def test_library_is_also_told_not_to_store_unencrypted(self):
@@ -282,3 +275,181 @@ class TestDelegatedTokenScopes:
         display = set(auth.get_scopes())
         requested = {s.rsplit("/", 1)[-1] for s in auth.get_token_scopes()}
         assert display == requested
+
+
+class TestPerInstanceTokenCache:
+    """Each OUTLOOK_MCP_CONFIG_DIR gets its own token cache.
+
+    Two instances sharing one cache let a cache miss or sign-in in one
+    disturb the other; on macOS they even shared one Keychain item.
+    """
+
+    def test_default_dir_keeps_historical_cache_name(self, monkeypatch):
+        """Existing single-instance installs must not have to re-authenticate."""
+        monkeypatch.delenv("OUTLOOK_MCP_CONFIG_DIR", raising=False)
+        assert auth_module.token_cache_name() == auth_module.CACHE_NAME
+
+    def test_other_dirs_get_distinct_stable_names(self, tmp_path, monkeypatch):
+        names = []
+        for sub in ("a", "b", "a"):
+            monkeypatch.setenv("OUTLOOK_MCP_CONFIG_DIR", str(tmp_path / sub))
+            names.append(auth_module.token_cache_name())
+        assert names[0] != auth_module.CACHE_NAME
+        assert names[0].startswith(auth_module.CACHE_NAME + "-")
+        assert names[0] != names[1]
+        assert names[0] == names[2]
+
+    def _build_macos_cache(self, monkeypatch):
+        import msal_extensions
+
+        calls = []
+        monkeypatch.setattr(
+            msal_extensions, "KeychainPersistence", lambda *a: calls.append(a) or object()
+        )
+        monkeypatch.setattr(msal_extensions, "PersistedTokenCache", lambda p: p)
+        with patch.object(auth_module.sys, "platform", "darwin"):
+            auth_module.AuthManager(Config(client_id="test-id"))._make_credential()
+        return calls[0]
+
+    def test_macos_default_dir_maps_to_azure_identity_keychain_item(self, monkeypatch):
+        monkeypatch.delenv("OUTLOOK_MCP_CONFIG_DIR", raising=False)
+        signal, service, account = self._build_macos_cache(monkeypatch)
+        assert service == "Microsoft.Developer.IdentityService"
+        assert account == "MSALCache"
+        assert signal.endswith("/.IdentityService/outlook-mcp.nocae")
+
+    def test_macos_other_dir_uses_its_own_keychain_item(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("OUTLOOK_MCP_CONFIG_DIR", str(tmp_path))
+        name = auth_module.token_cache_name()
+        signal, service, account = self._build_macos_cache(monkeypatch)
+        assert account == name
+        assert signal.endswith(f"/.IdentityService/{name}.nocae")
+
+    @pytest.mark.skipif(sys.platform != "darwin", reason="Keychain persistence is macOS-only")
+    def test_macos_default_matches_what_azure_identity_builds(self, monkeypatch):
+        """Guards the no-re-auth promise against azure-identity changing its layout."""
+        from azure.identity import TokenCachePersistenceOptions
+        from azure.identity._persistent_cache import _load_persistent_cache
+
+        monkeypatch.delenv("OUTLOOK_MCP_CONFIG_DIR", raising=False)
+        ours = auth_module._macos_token_cache(auth_module.CACHE_NAME)._persistence
+        theirs = _load_persistent_cache(
+            TokenCachePersistenceOptions(name="outlook-mcp")
+        )._persistence
+        assert ours.get_location() == theirs.get_location()
+        assert ours._service_name == theirs._service_name
+        assert ours._account_name == theirs._account_name
+
+    def test_device_code_credential_still_accepts_private_cache_kwarg(self):
+        """We rely on DeviceCodeCredential's private `_cache` argument on macOS.
+
+        If an azure-identity upgrade drops it, fail here rather than silently
+        falling back to the shared Keychain item.
+        """
+        import msal
+        from azure.identity import DeviceCodeCredential
+
+        cache = msal.TokenCache()
+        cred = DeviceCodeCredential(client_id="test-id", _cache=cache)
+        assert cred._cache is cache
+        assert cred._custom_cache is True
+
+
+class TestNoInteractiveFallbackInServer:
+    """The server must never start a device-code flow on a cache miss.
+
+    That flow blocks the stdio server (initialize times out) and prints its
+    prompt to stdout, which is the JSON-RPC channel.
+    """
+
+    def _credential(self, interactive):
+        with patch("outlook_mcp.auth._unencrypted_fallback_will_be_used", return_value=False):
+            return AuthManager(Config(client_id="test-id"))._make_credential(
+                interactive=interactive
+            )
+
+    def test_server_credential_disables_automatic_authentication(self):
+        assert self._credential(interactive=False)._disable_automatic_authentication is True
+
+    def test_cli_login_credential_allows_device_code_flow(self):
+        assert self._credential(interactive=True)._disable_automatic_authentication is False
+
+    def test_cache_miss_raises_instead_of_prompting(self):
+        import msal
+        from azure.identity import AuthenticationRequiredError, DeviceCodeCredential
+
+        cred = DeviceCodeCredential(
+            client_id="test-id", _cache=msal.TokenCache(), disable_automatic_authentication=True
+        )
+        with patch.object(
+            DeviceCodeCredential, "_request_token", side_effect=AssertionError("prompted")
+        ):
+            with pytest.raises(AuthenticationRequiredError):
+                cred.get_token("https://graph.microsoft.com/Mail.Read")
+
+    def test_try_cached_token_builds_non_interactive_credential(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("OUTLOOK_MCP_CONFIG_DIR", str(tmp_path))
+        (tmp_path / auth_module.AUTH_RECORD_FILE).write_text("{}")
+        auth = AuthManager(Config(client_id="test-id"))
+        with (
+            patch.object(auth_module, "_load_auth_record", return_value=object()),
+            patch.object(auth, "_make_credential") as make,
+        ):
+            assert auth.try_cached_token(auth.get_token_scopes()) is True
+        assert make.call_args.kwargs.get("interactive", False) is False
+
+
+class _FakeKeychainError(OSError):
+    """Mimics msal_extensions.osx.KeychainError: str() is empty."""
+
+    def __init__(self, exit_status):
+        super().__init__()
+        self.exit_status = exit_status
+
+
+def _wrapped(cause):
+    from azure.core.exceptions import ClientAuthenticationError
+
+    try:
+        try:
+            raise cause
+        except Exception as ex:
+            raise ClientAuthenticationError(message=f"Authentication failed: {ex}") from ex
+    except ClientAuthenticationError as outer:
+        return outer
+
+
+class TestDescribeAuthFailure:
+    """Token failures must name their cause instead of logging a blank reason."""
+
+    def test_keychain_error_code_is_surfaced(self):
+        reason = auth_module.describe_auth_failure(_wrapped(_FakeKeychainError(-25308)))
+        assert "-25308" in reason
+        assert "errSecInteractionNotAllowed" in reason
+
+    def test_unknown_keychain_code_still_reported(self):
+        reason = auth_module.describe_auth_failure(_wrapped(_FakeKeychainError(-1)))
+        assert "macOS Keychain error -1" in reason
+
+    def test_uses_first_message_with_content(self):
+        reason = auth_module.describe_auth_failure(_wrapped(RuntimeError("lock busy")))
+        assert reason.endswith("Authentication failed: lock busy")
+
+    def test_no_details_anywhere(self):
+        reason = auth_module.describe_auth_failure(_wrapped(RuntimeError()))
+        assert "no details" in reason
+
+    def test_try_cached_token_logs_the_reason(self, caplog, monkeypatch):
+        auth = AuthManager(Config(client_id="test-id"))
+        failing = type(
+            "C",
+            (),
+            {"get_token": lambda *a: (_ for _ in ()).throw(_wrapped(_FakeKeychainError(-128)))},
+        )()
+        with (
+            caplog.at_level(logging.WARNING, logger="outlook_mcp.auth"),
+            patch.object(auth_module, "_load_auth_record", return_value=object()),
+            patch.object(auth, "_make_credential", return_value=failing),
+        ):
+            assert auth.try_cached_token(auth.get_token_scopes()) is False
+        assert "-128" in caplog.text

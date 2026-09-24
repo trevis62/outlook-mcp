@@ -296,3 +296,42 @@ async def test_wrap_tool_errors_end_to_end_via_mocked_implementation():
     assert exc_info.value.error_code == "TooManyRequests"
     assert exc_info.value.action is not None
     assert "retry" in exc_info.value.action.lower()
+
+
+@pytest.mark.asyncio
+async def test_wrap_tool_errors_maps_cache_miss_to_auth_required():
+    from azure.identity import AuthenticationRequiredError
+
+    from outlook_mcp.errors import AuthRequiredError
+
+    @_wrap_tool_errors
+    async def fake_tool():
+        raise AuthenticationRequiredError(scopes=["x"], message="no cached token")
+
+    with pytest.raises(AuthRequiredError):
+        await fake_tool()
+
+
+@pytest.mark.asyncio
+async def test_wrap_tool_errors_names_keychain_failure():
+    """A blank 'Authentication failed: ' must reach the agent with its cause."""
+    from azure.core.exceptions import ClientAuthenticationError
+
+    from outlook_mcp.errors import TokenAcquisitionError
+
+    class KeychainError(OSError):
+        def __init__(self, exit_status):
+            super().__init__()
+            self.exit_status = exit_status
+
+    @_wrap_tool_errors
+    async def fake_tool():
+        try:
+            raise KeychainError(-25308)
+        except KeychainError as ex:
+            raise ClientAuthenticationError(message=f"Authentication failed: {ex}") from ex
+
+    with pytest.raises(TokenAcquisitionError) as exc_info:
+        await fake_tool()
+    assert exc_info.value.code == "token_unavailable"
+    assert "-25308" in exc_info.value.message

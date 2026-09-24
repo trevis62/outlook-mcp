@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -13,7 +15,7 @@ from azure.identity import (
     TokenCachePersistenceOptions,
 )
 
-from outlook_mcp.config import Config, get_config_dir
+from outlook_mcp.config import DEFAULT_CONFIG_DIR, Config, get_config_dir
 from outlook_mcp.errors import AuthRequiredError, UnencryptedCacheError
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,78 @@ SCOPES_READONLY = [
 
 CACHE_NAME = "outlook-mcp"
 AUTH_RECORD_FILE = "auth_record.json"
+
+# What azure-identity itself uses on macOS: every cache, whatever its `name`,
+# lives in this one Keychain item — `name` only picks the signal/lock file.
+_KEYCHAIN_SERVICE = "Microsoft.Developer.IdentityService"
+_KEYCHAIN_DEFAULT_ACCOUNT = "MSALCache"
+_NON_CAE_SUFFIX = ".nocae"
+
+# OSStatus codes worth naming when the macOS Keychain refuses a read/write.
+# msal_extensions' KeychainError stringifies to "", so without this the
+# server logs "Authentication failed: " with no reason at all.
+_KEYCHAIN_STATUS_HINTS = {
+    -128: "the Keychain access prompt was denied or cancelled",
+    -25293: "Keychain authorization failed",
+    -25300: "the token cache item does not exist yet",
+    -25308: "Keychain refused to show an access prompt (errSecInteractionNotAllowed)",
+}
+
+
+def token_cache_name() -> str:
+    """Per-instance token cache name, derived from the config directory.
+
+    Two server instances (one per account, via OUTLOOK_MCP_CONFIG_DIR) must
+    not share a cache: a sign-in or cache miss in one would otherwise disturb
+    the other. The default directory keeps the historical name so existing
+    installs don't have to re-authenticate.
+    """
+    config_dir = os.path.realpath(get_config_dir())
+    if config_dir == os.path.realpath(os.path.expanduser(DEFAULT_CONFIG_DIR)):
+        return CACHE_NAME
+    digest = hashlib.sha256(config_dir.encode()).hexdigest()[:12]
+    return f"{CACHE_NAME}-{digest}"
+
+
+def _macos_token_cache(name: str):
+    """Build a Keychain-backed cache in its own Keychain item for `name`.
+
+    azure-identity hardcodes the Keychain account to "MSALCache", so on macOS
+    TokenCachePersistenceOptions(name=...) cannot isolate two instances — they
+    would write the same Keychain item while locking different files. We build
+    the persistence ourselves and hand it over through DeviceCodeCredential's
+    private ``_cache`` argument (pinned by tests/test_auth.py). The default
+    cache maps to exactly the item azure-identity would have used.
+    """
+    import msal_extensions
+
+    account = _KEYCHAIN_DEFAULT_ACCOUNT if name == CACHE_NAME else name
+    signal_file = os.path.expanduser(os.path.join("~", ".IdentityService", name + _NON_CAE_SUFFIX))
+    persistence = msal_extensions.KeychainPersistence(signal_file, _KEYCHAIN_SERVICE, account)
+    return msal_extensions.PersistedTokenCache(persistence)
+
+
+def describe_auth_failure(exc: BaseException) -> str:
+    """Return a human-readable reason for a token-acquisition failure.
+
+    Walks the exception chain so the underlying cause surfaces even when
+    azure-identity wraps it in a message-less ClientAuthenticationError.
+    """
+    chain: list[BaseException] = []
+    current: BaseException | None = exc
+    while current is not None and all(current is not e for e in chain):
+        chain.append(current)
+        current = current.__cause__ or current.__context__
+    for err in chain:
+        status = getattr(err, "exit_status", None)
+        if isinstance(status, int):
+            hint = _KEYCHAIN_STATUS_HINTS.get(status, "see Apple's OSStatus codes")
+            return f"macOS Keychain error {status}: {hint}"
+    for err in chain:
+        text = str(err).strip()
+        if text and text.rstrip(":") != "Authentication failed":
+            return f"{type(err).__name__}: {text}"
+    return f"{type(exc).__name__} (no details)"
 
 
 def _unencrypted_fallback_will_be_used() -> bool:
@@ -149,8 +223,16 @@ class AuthManager:
         self,
         prompt_callback=None,
         auth_record: AuthenticationRecord | None = None,
+        interactive: bool = False,
     ) -> DeviceCodeCredential:
-        """Create a DeviceCodeCredential with persistent cache."""
+        """Create a DeviceCodeCredential with persistent cache.
+
+        Non-interactive credentials (everything the MCP server uses) never
+        start a device-code flow on a cache miss: that flow would block the
+        stdio server for up to ``timeout`` seconds and print its prompt to
+        stdout, the JSON-RPC channel. They raise AuthenticationRequiredError
+        instead, which tools surface as AuthRequiredError.
+        """
         global _warned_unencrypted_fallback
         allow_unencrypted = self.config.allow_unencrypted_token_cache
 
@@ -159,8 +241,9 @@ class AuthManager:
         if not allow_unencrypted and _unencrypted_fallback_will_be_used():
             raise UnencryptedCacheError()
 
+        cache_name = token_cache_name()
         cache_options = TokenCachePersistenceOptions(
-            name=CACHE_NAME,
+            name=cache_name,
             allow_unencrypted_storage=allow_unencrypted,
         )
         if (
@@ -184,9 +267,14 @@ class AuthManager:
         kwargs = {
             "client_id": self.config.client_id,
             "tenant_id": self.config.tenant_id,
-            "cache_persistence_options": cache_options,
             "timeout": 900,
+            "disable_automatic_authentication": not interactive,
         }
+        if sys.platform == "darwin":
+            kwargs["_cache"] = _macos_token_cache(cache_name)
+        else:
+            # libsecret and DPAPI already key the cache on its name.
+            kwargs["cache_persistence_options"] = cache_options
         if prompt_callback:
             kwargs["prompt_callback"] = prompt_callback
         if auth_record:
@@ -215,7 +303,7 @@ class AuthManager:
             print()
             print("Waiting for you to complete sign-in in your browser...")
 
-        cred = self._make_credential(prompt_callback=_on_device_code)
+        cred = self._make_credential(prompt_callback=_on_device_code, interactive=True)
         # get_token() uses cache first, falls back to interactive.
         cred.get_token(*self.get_token_scopes())
 
@@ -245,8 +333,11 @@ class AuthManager:
             cred.get_token(*self.get_token_scopes())
             self.credential = cred
             return True
-        except Exception:
-            logger.warning("Cached token refresh failed — re-run `outlook-mcp auth`.")
+        except Exception as exc:
+            logger.warning(
+                "Cached token refresh failed (%s) — re-run `outlook-mcp auth`.",
+                describe_auth_failure(exc),
+            )
             return False
 
     def get_credential(self) -> DeviceCodeCredential:

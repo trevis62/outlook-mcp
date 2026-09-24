@@ -1,4 +1,4 @@
-"""Integration smoke test — requires real Azure AD app and prior outlook_login.
+"""Integration smoke test — requires real Azure AD app and prior `outlook-mcp auth`.
 
 Run with: uv run pytest -m integration -v
 Skipped by default in CI.
@@ -32,7 +32,7 @@ def real_auth(real_config):
         auth.login()
         auth.get_credential()
     except Exception:
-        pytest.skip("Not authenticated — run outlook_login first")
+        pytest.skip("Not authenticated — run `outlook-mcp auth` first")
     return auth
 
 

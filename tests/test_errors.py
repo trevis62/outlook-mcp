@@ -23,7 +23,7 @@ def test_auth_required_error():
     err = AuthRequiredError()
     assert err.code == "auth_required"
     assert "not authenticated" in err.message.lower()
-    assert "outlook_login" in err.action
+    assert "outlook-mcp auth" in err.action
     assert isinstance(err, OutlookMCPError)
 
 
@@ -52,7 +52,7 @@ def test_graph_api_error_401():
     assert err.status_code == 401
     assert err.code == "graph_api_InvalidAuthenticationToken"
     assert err.action is not None
-    assert "re-authenticate" in err.action.lower() or "login" in err.action.lower()
+    assert "outlook-mcp auth" in err.action
     assert isinstance(err, OutlookMCPError)
 
 

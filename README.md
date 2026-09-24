@@ -406,7 +406,9 @@ OUTLOOK_MCP_CONFIG_DIR=~/.outlook-mcp-second outlook-mcp auth   # sign in as the
 claude mcp add outlook-second -e OUTLOOK_MCP_CONFIG_DIR=$HOME/.outlook-mcp-second -- outlook-mcp
 ```
 
-Refresh tokens for all accounts share the one OS keyring entry; each instance's auth record selects its own account from it.
+Each instance also gets its own token cache (a separate Keychain item on macOS), named after its config directory, so one instance's sign-in or cache trouble can't disturb another. The default `~/.outlook-mcp` keeps the original cache. A newly added instance, or one set up before per-instance caches existed, needs one `outlook-mcp auth` run with its `OUTLOOK_MCP_CONFIG_DIR`.
+
+The server never starts a sign-in itself: if an instance has no usable cached token, its tools return `auth_required` straight away. Run `outlook-mcp auth` for that instance on the host.
 
 ### Toolset selection (optional) — `OUTLOOK_MCP_TOOLSETS`
 

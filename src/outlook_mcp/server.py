@@ -3,17 +3,25 @@
 from __future__ import annotations
 
 import functools
+import logging
 import os
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
+from azure.core.exceptions import ClientAuthenticationError
+from azure.identity import AuthenticationRequiredError
 from mcp.server.fastmcp import Context, FastMCP
 
 from outlook_mcp import __version__, toolsets
-from outlook_mcp.auth import AuthManager
+from outlook_mcp.auth import AuthManager, describe_auth_failure
 from outlook_mcp.config import load_config
-from outlook_mcp.errors import OutlookMCPError, wrap_graph_error
+from outlook_mcp.errors import (
+    AuthRequiredError,
+    OutlookMCPError,
+    TokenAcquisitionError,
+    wrap_graph_error,
+)
 from outlook_mcp.graph import GraphClient
 from outlook_mcp.tools import (
     admin,
@@ -36,6 +44,8 @@ from outlook_mcp.tools import (
     todo,
     user,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -97,6 +107,9 @@ def _wrap_tool_errors(func: Callable[..., Any]) -> Callable[..., Any]:
 
     - Pass through ``OutlookMCPError`` subclasses (already structured).
     - Pass through ``ValueError`` (validation errors carry useful messages).
+    - Map token failures: a cache miss (``AuthenticationRequiredError``)
+      becomes ``AuthRequiredError``; any other ``ClientAuthenticationError``
+      becomes ``TokenAcquisitionError`` carrying the underlying reason.
     - Convert Graph SDK errors (``ODataError`` / ``APIError``) into
       ``GraphAPIError`` via :func:`wrap_graph_error` so agents see
       ``{code, message, action}`` instead of raw SDK exception text.
@@ -111,6 +124,12 @@ def _wrap_tool_errors(func: Callable[..., Any]) -> Callable[..., Any]:
             raise
         except ValueError:
             raise
+        except AuthenticationRequiredError as exc:
+            raise AuthRequiredError() from exc
+        except ClientAuthenticationError as exc:
+            reason = describe_auth_failure(exc)
+            logger.warning("Token acquisition failed: %s", reason)
+            raise TokenAcquisitionError(reason) from exc
         except Exception as exc:
             try:
                 raise wrap_graph_error(exc) from exc

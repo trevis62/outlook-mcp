@@ -20,7 +20,21 @@ class AuthRequiredError(OutlookMCPError):
         super().__init__(
             "auth_required",
             "Not authenticated. No valid credential found.",
-            "Call outlook_login to authenticate with your Microsoft account.",
+            "Run `outlook-mcp auth` on the host to sign in to your Microsoft account.",
+        )
+
+
+class TokenAcquisitionError(OutlookMCPError):
+    """Raised when a token could not be obtained for a reason other than a
+    missing sign-in — e.g. the OS credential store refused to hand over the
+    cache. ``reason`` comes from ``auth.describe_auth_failure``."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(
+            "token_unavailable",
+            f"Could not obtain an access token: {reason}",
+            "Retry; if it persists, restart the MCP server or run "
+            "`outlook-mcp status` on the host.",
         )
 
 
@@ -106,7 +120,7 @@ class GraphAPIError(OutlookMCPError):
             # Legacy behavior: derive action from status_code only.
             action = None
             if status_code == 401:
-                action = "Token may have expired. Try outlook_login to re-authenticate."
+                action = "Token may have expired — run `outlook-mcp auth` on the host."
             elif status_code == 429:
                 action = "Rate limited by Microsoft Graph. Wait a moment and retry."
         super().__init__(
@@ -133,12 +147,9 @@ _HINT_TABLE: dict[tuple[int, str | None], str] = {
         "Resource not found. The ID may be stale — re-list to get current IDs."
     ),
     (429, None): (
-        "Rate limited by Microsoft Graph. "
-        "Back off and retry; respect any Retry-After header."
+        "Rate limited by Microsoft Graph. Back off and retry; respect any Retry-After header."
     ),
-    (503, None): (
-        "Microsoft Graph is temporarily unavailable. Retry after a short delay."
-    ),
+    (503, None): ("Microsoft Graph is temporarily unavailable. Retry after a short delay."),
 }
 
 
@@ -175,14 +186,13 @@ def wrap_graph_error(exc: Exception) -> GraphAPIError:
         from msgraph.generated.models.o_data_errors.o_data_error import (
             ODataError as _ODataError,
         )
+
         graph_types: tuple[type, ...] = (APIError, _ODataError)
     except ImportError:  # pragma: no cover — defensive
         graph_types = (APIError,)
 
     if not isinstance(exc, graph_types):
-        raise TypeError(
-            f"wrap_graph_error: not a Graph SDK error: {type(exc).__name__}"
-        )
+        raise TypeError(f"wrap_graph_error: not a Graph SDK error: {type(exc).__name__}")
 
     status_code: int | None = getattr(exc, "response_status_code", None)
 
