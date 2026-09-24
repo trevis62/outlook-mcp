@@ -148,7 +148,10 @@ class TestRsvp:
         mock_client.me.events.by_event_id = MagicMock(return_value=builder)
 
         result = await rsvp(
-            mock_client, event_id="AAMkAG123=", response="accept", config=_CFG,
+            mock_client,
+            event_id="AAMkAG123=",
+            response="accept",
+            config=_CFG,
         )
         assert result["status"] == "accepted"
         builder.accept.post.assert_called_once()
@@ -160,7 +163,10 @@ class TestRsvp:
         mock_client.me.events.by_event_id = MagicMock(return_value=builder)
 
         result = await rsvp(
-            mock_client, event_id="AAMkAG123=", response="decline", config=_CFG,
+            mock_client,
+            event_id="AAMkAG123=",
+            response="decline",
+            config=_CFG,
         )
         assert result["status"] == "declined"
         builder.decline.post.assert_called_once()
@@ -172,7 +178,10 @@ class TestRsvp:
         mock_client.me.events.by_event_id = MagicMock(return_value=builder)
 
         result = await rsvp(
-            mock_client, event_id="AAMkAG123=", response="tentative", config=_CFG,
+            mock_client,
+            event_id="AAMkAG123=",
+            response="tentative",
+            config=_CFG,
         )
         assert result["status"] == "tentativelyAccepted"
         builder.tentatively_accept.post.assert_called_once()

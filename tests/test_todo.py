@@ -301,7 +301,10 @@ class TestUpdateTask:
         client = _build_mock_client()
 
         result = await update_task(
-            client, task_id="task1", title="Updated title", config=_CFG,
+            client,
+            task_id="task1",
+            title="Updated title",
+            config=_CFG,
         )
 
         assert result["status"] == "updated"

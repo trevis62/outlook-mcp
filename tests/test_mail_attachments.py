@@ -400,9 +400,7 @@ class TestAttachToDraft:
 
         mock_client = MagicMock()
         mock_builder = mock_client.me.messages.by_message_id.return_value
-        mock_builder.attachments.create_upload_session.post = AsyncMock(
-            return_value=mock_session
-        )
+        mock_builder.attachments.create_upload_session.post = AsyncMock(return_value=mock_session)
 
         with patch(
             "outlook_mcp.tools.mail_attachments._upload_large_file", new_callable=AsyncMock
@@ -435,13 +433,9 @@ class TestAttachToDraft:
         mock_client = MagicMock()
         mock_builder = mock_client.me.messages.by_message_id.return_value
         mock_builder.attachments.post = AsyncMock(return_value=created_att)
-        mock_builder.attachments.create_upload_session.post = AsyncMock(
-            return_value=mock_session
-        )
+        mock_builder.attachments.create_upload_session.post = AsyncMock(return_value=mock_session)
 
-        with patch(
-            "outlook_mcp.tools.mail_attachments._upload_large_file", new_callable=AsyncMock
-        ):
+        with patch("outlook_mcp.tools.mail_attachments._upload_large_file", new_callable=AsyncMock):
             result = await attach_to_draft(
                 mock_client,
                 draft_id="AAMkAG123=",
@@ -572,8 +566,10 @@ def _attachment_client(raw_content: bytes = b"payload"):
     mock_att.content_bytes = raw_content
 
     client = MagicMock()
-    client.me.messages.by_message_id.return_value.attachments.by_attachment_id.return_value.get = AsyncMock(  # noqa: E501
-        return_value=mock_att
+    client.me.messages.by_message_id.return_value.attachments.by_attachment_id.return_value.get = (
+        AsyncMock(  # noqa: E501
+            return_value=mock_att
+        )
     )
     return client
 
@@ -630,9 +626,7 @@ class TestSendAttachmentConfinement:
         secret.write_text("PRIVATE KEY")
         allowed = tmp_path / "outbox"
         allowed.mkdir()
-        cfg = Config(
-            client_id="test", attachment_source_dirs=[str(allowed)]
-        )
+        cfg = Config(client_id="test", attachment_source_dirs=[str(allowed)])
         client = MagicMock()
         client.me.send_mail.post = AsyncMock()
 

@@ -12,9 +12,7 @@ from __future__ import annotations
 import importlib.util
 import pathlib
 
-_PREFLIGHT_PATH = (
-    pathlib.Path(__file__).resolve().parent.parent / "scripts" / "preflight.py"
-)
+_PREFLIGHT_PATH = pathlib.Path(__file__).resolve().parent.parent / "scripts" / "preflight.py"
 _spec = importlib.util.spec_from_file_location("preflight", _PREFLIGHT_PATH)
 preflight = importlib.util.module_from_spec(_spec)
 assert _spec.loader is not None

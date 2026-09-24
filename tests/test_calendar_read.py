@@ -37,9 +37,7 @@ def _make_mock_event(**overrides):
     event.categories = overrides.get("categories", [])
     # Detail fields
     event.body = MagicMock(content=overrides.get("body_content", "<p>Agenda here</p>"))
-    event.online_meeting = MagicMock(
-        join_url=overrides.get("join_url", None)
-    )
+    event.online_meeting = MagicMock(join_url=overrides.get("join_url", None))
     event.recurrence = overrides.get("recurrence", None)
     attendee_data = overrides.get("attendees", [])
     attendees = []
@@ -48,9 +46,7 @@ def _make_mock_event(**overrides):
         att.email_address = MagicMock()
         att.email_address.name = a.get("name", "")
         att.email_address.address = a.get("email", "")
-        att.status = MagicMock(
-            response=MagicMock(value=a.get("response", "none"))
-        )
+        att.status = MagicMock(response=MagicMock(value=a.get("response", "none")))
         attendees.append(att)
     event.attendees = attendees
     return event

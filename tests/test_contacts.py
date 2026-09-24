@@ -26,11 +26,22 @@ def _make_mock_contact(**overrides):
     Matches the consumer Outlook contact shape: ``mobile_phone`` (single
     string), ``home_phones`` (list[str]), ``business_phones`` (list[str]).
     """
-    contact = MagicMock(spec=[
-        "id", "display_name", "given_name", "surname",
-        "company_name", "title", "department", "birthday",
-        "email_addresses", "mobile_phone", "home_phones", "business_phones",
-    ])
+    contact = MagicMock(
+        spec=[
+            "id",
+            "display_name",
+            "given_name",
+            "surname",
+            "company_name",
+            "title",
+            "department",
+            "birthday",
+            "email_addresses",
+            "mobile_phone",
+            "home_phones",
+            "business_phones",
+        ]
+    )
     contact.id = overrides.get("id", "contact123")
     contact.display_name = overrides.get("display_name", "John Doe")
     contact.given_name = overrides.get("given_name", "John")
@@ -110,7 +121,9 @@ class TestListContacts:
     async def test_list_summary_falls_back_to_business_phone(self):
         """When mobile and home are empty, falls back to first business phone."""
         contact = _make_mock_contact(
-            mobile_phone="", home_phones=[], business_phones=["+15553334444"],
+            mobile_phone="",
+            home_phones=[],
+            business_phones=["+15553334444"],
         )
         mock_client = _make_contacts_mock([contact])
 
@@ -208,7 +221,9 @@ class TestGetContact:
     async def test_get_handles_empty_phone_fields(self):
         """get_contact returns empty defaults when phone fields are missing."""
         mock_contact = _make_mock_contact(
-            mobile_phone="", home_phones=[], business_phones=[],
+            mobile_phone="",
+            home_phones=[],
+            business_phones=[],
         )
         mock_client = _make_contact_by_id_mock(mock_contact)
 
@@ -252,7 +267,10 @@ class TestCreateContact:
         mock_client.me.contacts.post = AsyncMock(return_value=_make_mock_contact())
 
         await create_contact(
-            mock_client, first_name="John", phone="+1234567890", config=_CFG,
+            mock_client,
+            first_name="John",
+            phone="+1234567890",
+            config=_CFG,
         )
 
         payload = mock_client.me.contacts.post.call_args.args[0]
@@ -265,7 +283,10 @@ class TestCreateContact:
         mock_client = MagicMock()
         with pytest.raises(ValueError, match="Invalid email"):
             await create_contact(
-                mock_client, first_name="John", email="not-an-email", config=_CFG,
+                mock_client,
+                first_name="John",
+                email="not-an-email",
+                config=_CFG,
             )
 
     async def test_create_validates_phone(self):
@@ -273,7 +294,10 @@ class TestCreateContact:
         mock_client = MagicMock()
         with pytest.raises(ValueError, match="Invalid phone"):
             await create_contact(
-                mock_client, first_name="John", phone="not a phone!!!", config=_CFG,
+                mock_client,
+                first_name="John",
+                phone="not a phone!!!",
+                config=_CFG,
             )
 
     async def test_create_raises_read_only(self):
@@ -289,7 +313,10 @@ class TestUpdateContact:
         mock_client = _make_contact_by_id_mock(_make_mock_contact())
 
         result = await update_contact(
-            mock_client, contact_id="contact123", first_name="Jane", config=_CFG,
+            mock_client,
+            contact_id="contact123",
+            first_name="Jane",
+            config=_CFG,
         )
         assert result["status"] == "updated"
 
@@ -302,7 +329,10 @@ class TestUpdateContact:
         mock_client = _make_contact_by_id_mock(_make_mock_contact())
 
         await update_contact(
-            mock_client, contact_id="contact123", phone="+19998887777", config=_CFG,
+            mock_client,
+            contact_id="contact123",
+            phone="+19998887777",
+            config=_CFG,
         )
         contact_obj = mock_client.me.contacts.by_contact_id.return_value
         payload = contact_obj.patch.call_args.args[0]
@@ -314,7 +344,10 @@ class TestUpdateContact:
         mock_client = MagicMock()
         with pytest.raises(ValueError, match="invalid characters"):
             await update_contact(
-                mock_client, contact_id="bad id!", first_name="Jane", config=_CFG,
+                mock_client,
+                contact_id="bad id!",
+                first_name="Jane",
+                config=_CFG,
             )
 
     async def test_update_raises_read_only(self):
@@ -322,7 +355,10 @@ class TestUpdateContact:
         mock_client = MagicMock()
         with pytest.raises(ReadOnlyError):
             await update_contact(
-                mock_client, contact_id="contact123", first_name="Jane", config=_CFG_RO,
+                mock_client,
+                contact_id="contact123",
+                first_name="Jane",
+                config=_CFG_RO,
             )
 
 

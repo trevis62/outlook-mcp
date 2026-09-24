@@ -140,7 +140,7 @@ async def test_subsequent_call_uses_delta_token_url_verbatim():
 @pytest.mark.asyncio
 async def test_cap_reached_returns_nextlink_and_has_more():
     page = lambda i, link: {  # noqa: E731
-        "value": [_raw_contact(id=f"c{i*50 + n}") for n in range(50)],
+        "value": [_raw_contact(id=f"c{i * 50 + n}") for n in range(50)],
         "@odata.nextLink": link,
     }
     responses = [
@@ -164,14 +164,18 @@ async def test_cap_reached_returns_nextlink_and_has_more():
 @pytest.mark.asyncio
 async def test_follows_nextlink_until_deltalink():
     responses = [
-        _http_response({
-            "value": [_raw_contact(id="c1")],
-            "@odata.nextLink": "https://graph.microsoft.com/v1.0/p2",
-        }),
-        _http_response({
-            "value": [_raw_contact(id="c2")],
-            "@odata.deltaLink": "https://graph.microsoft.com/v1.0/contacts-delta-final",
-        }),
+        _http_response(
+            {
+                "value": [_raw_contact(id="c1")],
+                "@odata.nextLink": "https://graph.microsoft.com/v1.0/p2",
+            }
+        ),
+        _http_response(
+            {
+                "value": [_raw_contact(id="c2")],
+                "@odata.deltaLink": "https://graph.microsoft.com/v1.0/contacts-delta-final",
+            }
+        ),
     ]
     patch_client, _, _ = _async_client_with(responses)
     with patch_client:

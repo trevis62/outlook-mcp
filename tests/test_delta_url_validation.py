@@ -15,8 +15,7 @@ from outlook_mcp.tools._delta import fetch_delta_pages, require_graph_url
 SCOPES = ["https://graph.microsoft.com/Mail.ReadWrite"]
 
 GRAPH_DELTA_URL = (
-    "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta"
-    "?$deltatoken=abc123"
+    "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages/delta?$deltatoken=abc123"
 )
 
 
@@ -213,9 +212,7 @@ async def test_delta_mints_its_token_with_the_clients_scopes():
     page = MagicMock()
     page.status_code = 200
     page.raise_for_status = MagicMock()
-    page.json = MagicMock(
-        return_value={"value": [], "@odata.deltaLink": GRAPH_DELTA_URL}
-    )
+    page.json = MagicMock(return_value={"value": [], "@odata.deltaLink": GRAPH_DELTA_URL})
 
     fake_client = MagicMock()
     fake_client.get = AsyncMock(return_value=page)

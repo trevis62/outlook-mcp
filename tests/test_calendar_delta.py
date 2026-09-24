@@ -79,9 +79,7 @@ class TestFormatEventDelta:
         assert out["location"] == "Online"
 
     def test_missing_subject_and_organizer(self):
-        out = _format_event_delta(
-            _raw_event(subject=None, organizer={"emailAddress": None})
-        )
+        out = _format_event_delta(_raw_event(subject=None, organizer={"emailAddress": None}))
         assert out["subject"] == "(no subject)"
         assert out["organizer"] == ""
 
@@ -163,7 +161,7 @@ async def test_missing_end_raises_value_error():
 @pytest.mark.asyncio
 async def test_cap_reached_returns_nextlink_and_has_more():
     page = lambda i, link: {  # noqa: E731
-        "value": [_raw_event(id=f"e{i*50 + n}") for n in range(50)],
+        "value": [_raw_event(id=f"e{i * 50 + n}") for n in range(50)],
         "@odata.nextLink": link,
     }
     responses = [
@@ -192,14 +190,18 @@ async def test_cap_reached_returns_nextlink_and_has_more():
 @pytest.mark.asyncio
 async def test_follows_nextlink_until_deltalink():
     responses = [
-        _http_response({
-            "value": [_raw_event(id="e1")],
-            "@odata.nextLink": "https://graph.microsoft.com/v1.0/p2",
-        }),
-        _http_response({
-            "value": [_raw_event(id="e2")],
-            "@odata.deltaLink": "https://graph.microsoft.com/v1.0/cal-delta-final",
-        }),
+        _http_response(
+            {
+                "value": [_raw_event(id="e1")],
+                "@odata.nextLink": "https://graph.microsoft.com/v1.0/p2",
+            }
+        ),
+        _http_response(
+            {
+                "value": [_raw_event(id="e2")],
+                "@odata.deltaLink": "https://graph.microsoft.com/v1.0/cal-delta-final",
+            }
+        ),
     ]
     patch_client, fake_client, _ = _async_client_with(responses)
     with patch_client:

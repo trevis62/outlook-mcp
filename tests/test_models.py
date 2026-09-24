@@ -27,9 +27,7 @@ class TestMailModels:
             SendMessageInput(to=[], subject="Test", body="Hello")
 
     def test_send_message_defaults(self):
-        msg = SendMessageInput(
-            to=["a@b.com"], subject="Test", body="Hello"
-        )
+        msg = SendMessageInput(to=["a@b.com"], subject="Test", body="Hello")
         assert msg.is_html is False
         assert msg.importance == "normal"
         assert msg.cc is None
@@ -37,9 +35,7 @@ class TestMailModels:
 
     def test_send_message_rejects_bad_importance(self):
         with pytest.raises(ValueError):
-            SendMessageInput(
-                to=["a@b.com"], subject="Test", body="Hello", importance="urgent"
-            )
+            SendMessageInput(to=["a@b.com"], subject="Test", body="Hello", importance="urgent")
 
     def test_triage_input(self):
         t = TriageInput(message_id="AAMkAG123=", action="flag", value="flagged")
